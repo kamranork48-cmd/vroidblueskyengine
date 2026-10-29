@@ -3,7 +3,6 @@ import logging
 import random
 import re
 from collections.abc import Callable
-from datetime import datetime
 
 from bsky_client import BlueSkyClient, Profile
 from config import Settings
@@ -11,15 +10,23 @@ from database import count_follows_today, mark_failed, mark_followed, save_disco
 from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
-RELEVANT_TERMS = ("furry", "3d", "2d", "model", "artist", "commission", "creator")
+RELEVANT_TERMS = ("furry", "3d", "2d", "model", "artist", "creator")
 
 
 class BotWorker:
-    def __init__(self, settings: Settings, session_factory: sessionmaker[Session], client: BlueSkyClient, publish_log: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        session_factory: sessionmaker[Session],
+        client: BlueSkyClient,
+        publish_log: Callable[[str], None],
+        account_id: int | None = None,
+    ) -> None:
         self.settings = settings
         self.session_factory = session_factory
         self.client = client
         self.publish_log = publish_log
+        self.account_id = account_id
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._pause_event = asyncio.Event()
@@ -30,6 +37,11 @@ class BotWorker:
     def log(self, message: str, level: int = logging.INFO) -> None:
         logger.log(level, message)
         self.publish_log(message)
+
+    @staticmethod
+    def _is_restriction_error(error: Exception) -> bool:
+        message = str(error).casefold()
+        return any(term in message for term in ("rate limit", "too many requests", "suspended", "forbidden", "unauthorized"))
 
     async def start(self) -> bool:
         if self._task and not self._task.done():
@@ -86,7 +98,7 @@ class BotWorker:
 
     async def scan_once(self) -> None:
         with self.session_factory() as session:
-            if count_follows_today(session) >= self.settings.max_follows_per_day:
+            if count_follows_today(session, self.account_id) >= self.settings.max_follows_per_day:
                 self.log("Daily follow cap reached; scan paused")
                 try:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=60)
@@ -146,14 +158,21 @@ class BotWorker:
             if not handle or not did:
                 return False
             with self.session_factory() as session:
-                if target_exists(session, did, handle):
+                if target_exists(session, did, handle, self.account_id):
                     return False
             try:
                 profile = await asyncio.to_thread(self.client.get_profile, handle)
                 if not await self._matches(profile, keyword):
                     return False
                 with self.session_factory() as session:
-                    save_discovered_user(session, handle=profile.handle, did=profile.did, follower_count=profile.followers_count, matched_keyword=keyword)
+                    save_discovered_user(
+                        session,
+                        account_id=self.account_id,
+                        handle=profile.handle,
+                        did=profile.did,
+                        follower_count=profile.followers_count,
+                        matched_keyword=keyword,
+                    )
                 self.log(f"Matched @{profile.handle} ({profile.followers_count} followers)")
                 await self._follow_if_allowed(profile)
                 return True
@@ -177,7 +196,7 @@ class BotWorker:
 
     async def _follow_if_allowed(self, profile: Profile) -> None:
         with self.session_factory() as session:
-            if count_follows_today(session) >= self.settings.max_follows_per_day:
+            if count_follows_today(session, self.account_id) >= self.settings.max_follows_per_day:
                 self.log("Daily follow cap reached; leaving matched profile discovered")
                 return
         if self.settings.dry_run:
@@ -186,12 +205,16 @@ class BotWorker:
         try:
             record_uri = await asyncio.to_thread(self.client.follow, profile.did)
             with self.session_factory() as session:
-                mark_followed(session, profile.did)
+                mark_followed(session, profile.did, self.account_id)
             self.log(f"Followed @{profile.handle} ({record_uri})")
             delay = random.randint(self.settings.follow_delay_min_seconds, self.settings.follow_delay_max_seconds)
             self.log(f"Waiting {delay}s before the next follow")
             await asyncio.sleep(delay)
         except Exception as exc:
             with self.session_factory() as session:
-                mark_failed(session, profile.did, "follow_failed")
+                mark_failed(session, profile.did, "follow_failed", self.account_id)
+            if self._is_restriction_error(exc):
+                self._pause_event.clear()
+                self.status = "paused"
+                self.log("Account paused after a rate-limit or restriction response; review it before resuming", logging.ERROR)
             self.log(f"Follow failed for @{profile.handle}: {exc}", logging.ERROR)

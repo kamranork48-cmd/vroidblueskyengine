@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>BlueSky Signal Desk - Login</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+  <main class="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900 p-8 shadow-2xl">
+    <h1 class="text-3xl font-bold">BlueSky Signal Desk</h1>
+    <p class="mt-2 text-sm text-slate-400">Team login and account workers</p>
+    <form id="login" class="mt-8 space-y-4">
+      <input id="username" required minlength="1" class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Username">
+      <input id="password" required minlength="8" type="password" class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Password">
+      <button class="w-full rounded-xl bg-cyan-400 px-4 py-3 font-bold text-slate-950">Log in</button>
+      <p id="message" class="text-sm text-rose-300"></p>
+    </form>
+    <details class="mt-8 border-t border-white/10 pt-5">
+      <summary class="cursor-pointer text-sm text-slate-400">First-run setup</summary>
+      <form id="setup" class="mt-4 space-y-3">
+        <input id="setup-username" required class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Admin username">
+        <input id="setup-password" required minlength="8" type="password" class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Admin password">
+        <button class="w-full rounded-xl border border-cyan-400 px-4 py-3 font-bold text-cyan-300">Create admin</button>
+      </form>
+    </details>
+  </main>
+  <script>
+    async function submit(form, endpoint, ids) {
+      const body = {};
+      ids.forEach(([key, id]) => body[key] = document.getElementById(id).value);
+      const response = await fetch(endpoint, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      if (response.redirected) location.href = response.url;
+      else { const data = await response.json(); document.getElementById('message').textContent = data.detail || 'Request failed'; }
+    }
+    login.onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/login', [['username','username'],['password','password']]); };
+    setup.onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/setup', [['username','setup-username'],['password','setup-password']]); };
+  </script>
+</body>
+</html>

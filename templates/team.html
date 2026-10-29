@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BlueSky Signal Desk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #020b19;
+      --panel: #04152a;
+      --panel-2: #061c36;
+      --line: rgba(31, 145, 255, .32);
+      --line-soft: rgba(31, 145, 255, .18);
+      --blue: #20c9ff;
+      --blue-2: #188dff;
+      --purple: #7654ff;
+      --text: #e8f4ff;
+      --muted: #7ca1c8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 75% -20%, rgba(19, 112, 220, .2), transparent 35rem),
+        radial-gradient(circle at 35% 100%, rgba(24, 66, 160, .13), transparent 30rem),
+        var(--bg);
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    .app-shell { display: grid; min-height: 100vh; grid-template-rows: 72px 1fr 54px; }
+    .topbar, .footer { background: rgba(2, 15, 33, .92); border-color: var(--line-soft); }
+    .topbar { border-bottom: 1px solid var(--line-soft); }
+    .footer { border-top: 1px solid var(--line-soft); }
+    .layout { display: grid; grid-template-columns: 162px minmax(0, 1fr); min-height: 0; }
+    .sidebar { border-right: 1px solid var(--line-soft); background: rgba(1, 13, 28, .82); }
+    .content { min-width: 0; padding: 14px 18px 22px; }
+    .panel { background: linear-gradient(145deg, rgba(5, 28, 54, .82), rgba(2, 15, 32, .94)); border: 1px solid var(--line); box-shadow: 0 0 28px rgba(0, 92, 190, .08); }
+    .panel { border-radius: 14px; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+    .panel:hover { border-color: rgba(32, 201, 255, .48); box-shadow: 0 0 32px rgba(0, 122, 224, .12); }
+    .glow { box-shadow: 0 0 24px rgba(27, 159, 255, .17); }
+    .brand-mark, .account-mark { display: grid; place-items: center; border: 1px solid var(--line); background: radial-gradient(circle, rgba(32, 201, 255, .3), rgba(15, 53, 105, .45)); }
+    .brand-mark { width: 40px; height: 40px; border-radius: 12px; }
+    .account-mark { width: 60px; height: 60px; border-radius: 12px; }
+    .butterfly { color: var(--blue); filter: drop-shadow(0 0 8px rgba(32, 201, 255, .65)); }
+    .nav-item { color: #84a9d2; border-left: 3px solid transparent; }
+    .nav-item:hover, .nav-item.active { color: #f0f8ff; background: linear-gradient(90deg, rgba(16, 113, 226, .35), transparent); border-left-color: var(--blue); }
+    .nav-icon { width: 22px; height: 22px; }
+    .eyebrow { color: #83b1df; font-size: 11px; }
+    .muted { color: var(--muted); }
+    .metric { min-width: 0; }
+    .metric-icon { width: 42px; height: 42px; border-radius: 999px; display: grid; place-items: center; background: rgba(19, 107, 200, .22); color: #7dbdff; }
+    .metric-icon.pink { background: rgba(210, 41, 106, .25); color: #ff3c78; }
+    .control { border: 1px solid rgba(39, 151, 255, .38); background: linear-gradient(180deg, rgba(15, 51, 92, .85), rgba(4, 25, 50, .9)); color: #dcedff; }
+    .control:hover { border-color: var(--blue); }
+    .control:focus-visible, .nav-item:focus-visible, .account-row:focus-visible, .save:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .control:disabled { cursor: not-allowed; filter: grayscale(.7); opacity: .42; }
+    .control.start { background: linear-gradient(135deg, #35e0c3, #16b6dc); color: #032034; border: 0; }
+    .control.stop { background: linear-gradient(135deg, #fb3569, #a92858); color: white; border: 0; }
+    .field { width: 100%; color: var(--text); background: rgba(2, 21, 43, .9); border: 1px solid rgba(47, 143, 235, .35); outline: none; }
+    .field:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(32, 201, 255, .1); }
+    .save { background: linear-gradient(100deg, #19bde9, #4a70ff 55%, #8e48f5); color: white; }
+    .logs { color: #80bdf2; background: rgba(1, 10, 23, .72); font-family: "Cascadia Code", Consolas, monospace; }
+    .account-row { border: 1px solid transparent; }
+    .account-row:hover, .account-row.selected { border-color: var(--line); background: rgba(13, 83, 158, .22); }
+    .status-pill { transition: color .2s ease, background .2s ease; }
+    .status-running { color: #7fffdc; background: rgba(16, 185, 129, .16); }
+    .status-paused { color: #ffd479; background: rgba(245, 158, 11, .16); }
+    .status-error { color: #ff91a8; background: rgba(244, 63, 94, .16); }
+    .status-stopped { color: #a9c5e3; background: rgba(71, 108, 146, .2); }
+    .toast { opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .2s ease, transform .2s ease; }
+    .toast.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    .toast.success { border-color: rgba(52, 211, 153, .45); color: #9ff5d5; }
+    .toast.error { border-color: rgba(251, 113, 133, .45); color: #ffb1bf; }
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { border-right: 0; border-bottom: 1px solid var(--line-soft); }
+      .sidebar nav { display: flex; overflow-x: auto; }
+      .nav-item { flex: 0 0 auto; border-left: 0; border-bottom: 3px solid transparent; }
+      .nav-item:hover, .nav-item.active { border-left-color: transparent; border-bottom-color: var(--blue); }
+      .content { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar flex items-center justify-between gap-5 px-5">
+      <div class="flex min-w-0 items-center gap-4">
+        <div class="hidden items-center gap-3 border-r border-white/15 pr-5 sm:flex">
+          <div class="text-2xl">🐰</div>
+          <div class="font-display text-lg italic text-white">Vroid<span class="text-violet-300">Studio</span><sup class="text-violet-300">♥</sup></div>
+        </div>
+        <div class="brand-mark"><svg class="butterfly" width="25" height="25" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
+        <div class="min-w-0"><h1 class="truncate text-lg font-bold"><span class="text-cyan-300">BlueSky</span> Signal Desk</h1><p class="text-xs muted">Multi-account worker control</p></div>
+      </div>
+      <div class="hidden items-center gap-5 md:flex"><div class="text-right text-xs leading-4 text-cyan-300">Find Streamers<br><span class="muted"><br>Track. Hunt. Grow.</span></div><div class="border-l border-white/15 pl-5 text-2xl">◎</div></div>
+    </header>
+    <div class="layout">
+      <aside class="sidebar flex flex-col justify-between">
+        <nav class="py-4">
+          <a class="nav-item active flex items-center gap-4 px-5 py-4 text-sm" href="#"><span class="nav-icon">⌂</span>Home</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⌾</span>Hunt</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#accounts"><span class="nav-icon">♙</span>Accounts</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#logs-panel"><span class="nav-icon">▤</span>Logs</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⚙</span>Settings</a>
+        </nav>
+        <div class="hidden p-4 text-xs muted lg:block">Encrypted credentials<br>Account-isolated workers</div>
+      </aside>
+      <main class="content">
+        <div class="mx-auto max-w-[1080px] space-y-3">
+          <section class="panel glow flex flex-col justify-between gap-4 rounded-xl p-4 sm:flex-row sm:items-center">
+            <div class="flex min-w-0 items-center gap-4">
+              <div class="account-mark"><svg class="butterfly" width="34" height="34" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
+              <div class="min-w-0"><p class="eyebrow">Selected account</p><h2 id="account-handle" class="truncate text-lg font-bold">@Select an account</h2><span id="account-status" class="mt-1 inline-flex rounded-full bg-blue-900/60 px-3 py-1 text-xs text-blue-200">No account selected</span></div>
+            </div>
+            <div class="flex flex-wrap gap-2"><button data-control="start" onclick="control('start')" class="control start rounded-lg px-5 py-3 text-sm font-bold">▶ &nbsp;Start</button><button data-control="pause" onclick="control('pause')" class="control rounded-lg px-5 py-3 text-sm font-bold">Ⅱ &nbsp;Pause</button><button data-control="stop" onclick="control('stop')" class="control stop rounded-lg px-5 py-3 text-sm font-bold">■ &nbsp;Stop</button></div>
+          </section>
+
+          <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon text-xl">Ⅱ</div><div><p class="eyebrow">Status</p><strong id="status" class="text-lg">—</strong></div></div>
+            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon text-xl">⌾</div><div><p class="eyebrow">Targets</p><strong id="targets-count" class="text-lg">—</strong></div></div>
+            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon text-xl">♟</div><div><p class="eyebrow">Followed today</p><strong id="follows" class="text-lg">—</strong></div></div>
+            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon pink text-xl">●</div><div><p class="eyebrow">Mode</p><strong id="mode" class="text-lg text-rose-400">—</strong></div></div>
+          </section>
+
+          <section id="accounts" class="panel rounded-xl p-4">
+            <div class="mb-3 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♙</span>Connected accounts</h2><button onclick="loadAccounts()" class="text-xs text-cyan-300 hover:text-white">Refresh</button></div>
+            <div id="account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"></div>
+            <form id="add-account" class="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input id="handle" required class="field rounded-lg px-3 py-2 text-sm" placeholder="name.bsky.social"><input id="app-password" required type="password" class="field rounded-lg px-3 py-2 text-sm" placeholder="App password"><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Connect</button><p id="connection-message" class="sm:col-span-3 min-h-4 text-xs muted">Credentials are encrypted before storage.</p></form>
+          </section>
+
+          <section id="empty" class="panel rounded-xl p-8 text-center muted">Connect an account or select one above to manage its worker.</section>
+          <section id="account-view" class="hidden space-y-3">
+            <div id="warning" class="hidden rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-200"></div>
+            <section id="settings" class="panel rounded-xl p-4"><h2 class="mb-3 flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">⚙</span>Account settings</h2><form id="settings-form" class="grid gap-2 md:grid-cols-2"><div class="relative md:col-span-2"><span class="absolute left-3 top-2 text-lg text-cyan-300">⌕</span><input id="keywords" class="field rounded-lg py-2 pl-10 pr-3 text-sm" placeholder="Search keywords, comma separated"></div><label class="eyebrow">Follower limit<input id="max-followers" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow limit (per day)<input id="daily-cap" type="number" min="0" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow delay (seconds)<input id="delay-min" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Maximum delay (seconds)<input id="delay-max" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="flex items-center gap-2 text-sm text-blue-100 md:col-span-2"><input id="dry-run" type="checkbox" class="h-4 w-4 accent-cyan-400"> Dry run (recommended)</label><button class="save rounded-lg px-4 py-2 text-sm font-bold md:col-span-2">▣ &nbsp;Save settings</button></form></section>
+            <section id="logs-panel" class="panel rounded-xl p-4"><div class="mb-2 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">▤</span>Recent logs</h2><a id="export" class="cursor-pointer text-sm font-semibold text-cyan-300 hover:text-white">Export CSV ↓</a></div><pre id="logs" class="logs max-h-48 overflow-auto rounded-lg border border-blue-900/60 p-3 text-[11px] leading-4"></pre></section>
+          </section>
+        </div>
+      </main>
+    </div>
+    <footer class="footer flex items-center justify-between px-5 text-xs muted"><div class="flex items-center gap-3"><span class="text-xl text-cyan-300">♥</span><span class="font-semibold">VroidStudio</span><span class="border-l border-white/15 pl-3 text-cyan-300">BlueSky Signal Desk</span></div><div class="hidden gap-5 sm:flex"><span>BlueSky</span><span>YouTube</span><span>Hunt ・ Follow</span><span>Build Your Empire ♛</span></div><div>☁️ 15°C &nbsp; Mostly cloudy</div></footer>
+    <div id="toast" role="status" aria-live="polite" class="toast panel fixed bottom-6 right-6 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-2xl"></div>
+  </div>
+  <script>
+    let selected = null;
+    async function api(path, options = {}) {
+      const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+      if (response.status === 401) { location.href = '/login'; throw new Error('Login required'); }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Request failed');
+      return data;
+    }
+    let toastTimer = null;
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast panel ${type} visible fixed bottom-6 right-6 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-2xl`;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('visible'), 3500);
+    }
+    function statusClass(status) {
+      return `status-pill status-${['running', 'paused', 'error', 'stopped'].includes(status) ? status : 'stopped'}`;
+    }
+    function setControlState(status) {
+      document.querySelectorAll('[data-control]').forEach(button => {
+        const action = button.dataset.control;
+        button.disabled = !selected || (action === 'start' && status === 'running') || (action === 'pause' && status !== 'running') || (action === 'stop' && status === 'stopped');
+      });
+    }
+    async function loadAccounts() {
+      const data = await api('/api/accounts');
+      document.getElementById('account-list').innerHTML = data.map(item => `<button onclick="selectAccount(${item.id})" class="account-row rounded-lg p-3 text-left"><span class="block font-semibold text-cyan-100">@${item.handle}</span><span class="${statusClass(item.status)} mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider">${item.status}</span></button>`).join('') || '<p class="text-sm muted">No accounts connected.</p>';
+      document.querySelectorAll('.account-row').forEach(row => row.classList.toggle('selected', row.textContent.includes(document.getElementById('account-handle').textContent.replace('@', ''))));
+    }
+    async function selectAccount(id) {
+      selected = id;
+      document.getElementById('empty').classList.add('hidden');
+      document.getElementById('account-view').classList.remove('hidden');
+      document.getElementById('export').href = `/api/accounts/${id}/export.csv`;
+      await refresh();
+      await loadAccounts();
+    }
+    async function refresh() {
+      if (!selected) return;
+      const data = await api(`/api/accounts/${selected}/status`);
+      document.getElementById('account-handle').textContent = '@' + data.handle;
+      document.getElementById('account-status').textContent = data.status;
+      document.getElementById('account-status').className = `${statusClass(data.status)} mt-1 inline-flex rounded-full px-3 py-1 text-xs`;
+      document.getElementById('status').textContent = data.status;
+      document.getElementById('targets-count').textContent = data.target_counts.total;
+      document.getElementById('follows').textContent = `${data.follows_today}/${data.max_follows_per_day}`;
+      document.getElementById('mode').textContent = data.dry_run ? 'Dry run' : 'Live';
+      document.getElementById('warning').textContent = data.last_error || '';
+      document.getElementById('warning').classList.toggle('hidden', !data.last_error);
+      document.getElementById('logs').textContent = data.logs.map(item => `${item.timestamp} ${item.message}`).join('\n') || 'Waiting for worker activity...';
+      document.getElementById('keywords').value = data.keywords.join(', ');
+      document.getElementById('max-followers').value = data.max_followers;
+      document.getElementById('daily-cap').value = data.max_follows_per_day;
+      document.getElementById('delay-min').value = data.follow_delay_min_seconds;
+      document.getElementById('delay-max').value = data.follow_delay_max_seconds;
+      document.getElementById('dry-run').checked = data.dry_run;
+      setControlState(data.status);
+    }
+    async function control(action) {
+      if (!selected) { showToast('Select an account first.', 'error'); return; }
+      try { await api(`/api/accounts/${selected}/${action}`, { method: 'POST' }); await refresh(); await loadAccounts(); showToast(`Worker ${action === 'pause' ? 'paused' : `${action}ed`}.`); } catch (error) { showToast(error.message, 'error'); }
+    }
+    document.getElementById('add-account').onsubmit = async event => {
+      event.preventDefault();
+      const message = document.getElementById('connection-message');
+      const button = event.target.querySelector('button');
+      message.textContent = 'Connecting...'; button.disabled = true;
+      try { await api('/api/accounts', { method: 'POST', body: JSON.stringify({ handle: document.getElementById('handle').value, app_password: document.getElementById('app-password').value }) }); event.target.reset(); message.textContent = 'Account connected.'; message.className = 'sm:col-span-3 min-h-4 text-xs text-emerald-300'; await loadAccounts(); showToast('Account connected successfully.'); }
+      catch (error) { message.textContent = error.message; message.className = 'sm:col-span-3 min-h-4 text-xs text-rose-300'; showToast(error.message, 'error'); }
+      finally { button.disabled = false; }
+    };
+    document.getElementById('settings-form').onsubmit = async event => {
+      event.preventDefault();
+      if (!selected) return;
+      try { await api(`/api/accounts/${selected}/settings`, { method: 'POST', body: JSON.stringify({ keywords: document.getElementById('keywords').value.split(',').map(item => item.trim()).filter(Boolean), max_followers: Number(document.getElementById('max-followers').value), dry_run: document.getElementById('dry-run').checked, max_follows_per_day: Number(document.getElementById('daily-cap').value), follow_delay_min_seconds: Number(document.getElementById('delay-min').value), follow_delay_max_seconds: Number(document.getElementById('delay-max').value) }) }); await refresh(); showToast('Account settings saved.'); }
+      catch (error) { showToast(error.message, 'error'); }
+    };
+    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login'; }
+    loadAccounts();
+    setInterval(refresh, 20000);
+  </script>
+</body>
+</html>

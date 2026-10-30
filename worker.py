@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from bsky_client import BlueSkyClient, Profile
 from config import Settings
-from database import BlueskyAccount, count_follows_today, mark_failed, mark_followed, save_discovered_user, target_exists
+from database import count_follows_today, mark_failed, mark_followed, save_discovered_user, target_exists, update_account_status
 from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ class BotWorker:
         self._pause_event.set()
         self.status = "running"
         self.last_error = None
+        if self.account_id is not None:
+            with self.session_factory() as session:
+                update_account_status(session, self.account_id, "running")
         self._task = asyncio.create_task(self.run(), name="bsky-bot-worker")
         self.log("Worker started")
         return True
@@ -58,12 +61,18 @@ class BotWorker:
         if self.status == "running":
             self._pause_event.clear()
             self.status = "paused"
+            if self.account_id is not None:
+                with self.session_factory() as session:
+                    update_account_status(session, self.account_id, "paused")
             self.log("Worker paused")
 
     def resume(self) -> None:
         if self.status == "paused":
             self._pause_event.set()
             self.status = "running"
+            if self.account_id is not None:
+                with self.session_factory() as session:
+                    update_account_status(session, self.account_id, "running")
             self.log("Worker resumed")
 
     async def stop(self) -> None:
@@ -72,6 +81,9 @@ class BotWorker:
         if self._task:
             await self._task
         self.status = "stopped"
+        if self.account_id is not None:
+            with self.session_factory() as session:
+                update_account_status(session, self.account_id, "stopped")
         self.log("Worker stopped")
 
     async def run(self) -> None:
@@ -92,15 +104,15 @@ class BotWorker:
             self.last_error = str(exc)
             self.status = "error"
             with self.session_factory() as session:
-                account = session.get(BlueskyAccount, self.account_id) if self.account_id is not None else None
-                if account is not None:
-                    account.status = "error"
-                    account.last_error = self.last_error[:500]
-                    session.commit()
+                if self.account_id is not None:
+                    update_account_status(session, self.account_id, "error", self.last_error)
             self.log(f"Worker error: {exc}", logging.ERROR)
         finally:
             if self.status not in {"error", "paused"}:
                 self.status = "stopped"
+                if self.account_id is not None:
+                    with self.session_factory() as session:
+                        update_account_status(session, self.account_id, "stopped")
 
     async def scan_once(self) -> None:
         with self.session_factory() as session:

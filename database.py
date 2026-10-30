@@ -73,6 +73,8 @@ class TargetUser(Base):
 
 
 def create_database(settings: Settings) -> tuple[Any, sessionmaker[Session]]:
+    if settings.require_persistent_database and settings.database_url.startswith("sqlite"):
+        raise RuntimeError("REQUIRE_PERSISTENT_DATABASE is enabled; configure Railway DATABASE_URL with PostgreSQL")
     if settings.database_url.startswith("sqlite"):
         settings.database_path.parent.mkdir(parents=True, exist_ok=True)
     connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
@@ -112,6 +114,14 @@ def get_account(session: Session, account_id: int) -> BlueskyAccount | None:
 
 def get_account_settings(session: Session, account_id: int) -> AccountSettings | None:
     return session.scalar(select(AccountSettings).where(AccountSettings.account_id == account_id))
+
+
+def update_account_status(session: Session, account_id: int, status: str, last_error: str | None = None) -> None:
+    account = session.get(BlueskyAccount, account_id)
+    if account is not None:
+        account.status = status
+        account.last_error = last_error[:500] if last_error else None
+        session.commit()
 
 
 def remove_account(session: Session, account_id: int) -> bool:

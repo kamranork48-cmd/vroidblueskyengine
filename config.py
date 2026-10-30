@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     bsky_handle: str = Field(default="", validation_alias="BSKY_HANDLE")
     bsky_app_password: str = Field(default="", validation_alias="BSKY_APP_PASSWORD")
     database_url: str = Field(default="sqlite:///./data/bsky_bot.db", validation_alias="DATABASE_URL")
+    require_persistent_database: bool = Field(default=False, validation_alias="REQUIRE_PERSISTENT_DATABASE")
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
     log_file: str = Field(default="logs/bsky-bot.log", validation_alias="LOG_FILE")
     dry_run: bool = Field(default=True, validation_alias="DRY_RUN")

@@ -114,6 +114,17 @@ def get_account_settings(session: Session, account_id: int) -> AccountSettings |
     return session.scalar(select(AccountSettings).where(AccountSettings.account_id == account_id))
 
 
+def remove_account(session: Session, account_id: int) -> bool:
+    account = session.get(BlueskyAccount, account_id)
+    if account is None:
+        return False
+    session.query(TargetUser).filter(TargetUser.account_id == account_id).delete(synchronize_session=False)
+    session.query(AccountSettings).filter(AccountSettings.account_id == account_id).delete(synchronize_session=False)
+    session.delete(account)
+    session.commit()
+    return True
+
+
 def target_exists(session: Session, did: str, handle: str, account_id: int | None = None) -> bool:
     query = select(TargetUser.id).where((TargetUser.did == did) | (TargetUser.handle == handle))
     if account_id is not None:

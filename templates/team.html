@@ -170,7 +170,7 @@
     }
     async function loadAccounts() {
       const data = await api('/api/accounts');
-      document.getElementById('account-list').innerHTML = data.map(item => `<button onclick="selectAccount(${item.id})" class="account-row rounded-lg p-3 text-left"><span class="block font-semibold text-cyan-100">@${item.handle}</span><span class="${statusClass(item.status)} mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider">${item.status}</span></button>`).join('') || '<p class="text-sm muted">No accounts connected.</p>';
+      document.getElementById('account-list').innerHTML = data.map(item => `<div class="account-row flex items-center gap-2 rounded-lg p-2"><button onclick="selectAccount(${item.id})" class="min-w-0 flex-1 p-1 text-left"><span class="block truncate font-semibold text-cyan-100">@${item.handle}</span><span class="${statusClass(item.status)} mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider">${item.status}</span>${item.last_error ? `<span class="mt-1 block truncate text-[10px] text-rose-300" title="${item.last_error}">${item.last_error}</span>` : ''}</button><button onclick="removeAccount(${item.id}, '${item.handle.replace(/'/g, "\\'")}')" class="rounded-md px-2 py-1 text-xs text-rose-300 hover:bg-rose-400/15" title="Remove account">✕</button></div>`).join('') || '<p class="text-sm muted">No accounts connected.</p>';
       document.querySelectorAll('.account-row').forEach(row => row.classList.toggle('selected', row.textContent.includes(document.getElementById('account-handle').textContent.replace('@', ''))));
     }
     async function selectAccount(id) {
@@ -205,6 +205,24 @@
     async function control(action) {
       if (!selected) { showToast('Select an account first.', 'error'); return; }
       try { await api(`/api/accounts/${selected}/${action}`, { method: 'POST' }); await refresh(); await loadAccounts(); showToast(`Worker ${action === 'pause' ? 'paused' : `${action}ed`}.`); } catch (error) { showToast(error.message, 'error'); }
+    }
+    async function removeAccount(id, handle) {
+      if (!confirm(`Remove @${handle}? This deletes its encrypted credential, settings, targets, and logs.`)) return;
+      try {
+        await api(`/api/accounts/${id}`, { method: 'DELETE' });
+        if (selected === id) {
+          selected = null;
+          document.getElementById('account-view').classList.add('hidden');
+          document.getElementById('empty').classList.remove('hidden');
+          document.getElementById('account-handle').textContent = '@Select an account';
+          document.getElementById('account-status').textContent = 'No account selected';
+          setControlState('stopped');
+        }
+        await loadAccounts();
+        showToast(`@${handle} removed.`);
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
     }
     document.getElementById('add-account').onsubmit = async event => {
       event.preventDefault();

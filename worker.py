@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from bsky_client import BlueSkyClient, Profile
 from config import Settings
-from database import count_follows_today, mark_failed, mark_followed, save_discovered_user, target_exists
+from database import BlueskyAccount, count_follows_today, mark_failed, mark_followed, save_discovered_user, target_exists
 from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,12 @@ class BotWorker:
         except Exception as exc:
             self.last_error = str(exc)
             self.status = "error"
+            with self.session_factory() as session:
+                account = session.get(BlueskyAccount, self.account_id) if self.account_id is not None else None
+                if account is not None:
+                    account.status = "error"
+                    account.last_error = self.last_error[:500]
+                    session.commit()
             self.log(f"Worker error: {exc}", logging.ERROR)
         finally:
             if self.status not in {"error", "paused"}:

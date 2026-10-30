@@ -26,6 +26,7 @@ from database import (
     target_counts,
     count_follows_today,
     TargetUser,
+    remove_account,
 )
 from worker_manager import WorkerManager
 
@@ -206,6 +207,20 @@ async def add_account(request: Request, payload: AccountCreate):
         return {"id": account.id, "handle": account.handle, "status": account.status}
 
 
+@app.delete("/api/accounts/{account_id}")
+async def delete_account(request: Request, account_id: int):
+    require_account(request, account_id)
+    worker = worker_manager.get(account_id)
+    if worker is not None and worker.status in {"running", "paused"}:
+        await worker.stop()
+    worker_manager.workers.pop(account_id, None)
+    logs.pop(account_id, None)
+    with session_factory() as session:
+        if not remove_account(session, account_id):
+            raise HTTPException(404, "Account not found")
+    return {"deleted": True, "account_id": account_id}
+
+
 @app.get("/api/accounts/{account_id}/status")
 async def account_status(request: Request, account_id: int):
     account = require_account(request, account_id)
@@ -250,7 +265,17 @@ def account_worker(request: Request, account_id: int):
             account_settings = get_account_settings(session, account_id)
         if account_settings is None:
             raise HTTPException(500, "Account settings are missing")
-        worker = worker_manager.create_worker(account, account_settings, decrypt_secret(settings, account.encrypted_app_password))
+        try:
+            app_password = decrypt_secret(settings, account.encrypted_app_password)
+        except RuntimeError as exc:
+            with session_factory() as session:
+                stored_account = get_account(session, account_id)
+                if stored_account is not None:
+                    stored_account.status = "error"
+                    stored_account.last_error = str(exc)[:500]
+                    session.commit()
+            raise HTTPException(503, str(exc)) from exc
+        worker = worker_manager.create_worker(account, account_settings, app_password)
     return worker
 
 

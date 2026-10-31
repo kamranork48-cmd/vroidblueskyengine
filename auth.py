@@ -67,6 +67,6 @@ def current_user(request: Request, session: Session) -> User:
         raise HTTPException(401, "Please log in")
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     user = get_user_by_session_hash(session, token_hash)
-    if user is None:
+    if user is None or user.is_active is False:
         raise HTTPException(401, "Session expired; please log in again")
     return user

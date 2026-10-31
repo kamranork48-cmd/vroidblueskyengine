@@ -11,7 +11,7 @@
       <button class="w-full rounded-xl bg-cyan-400 px-4 py-3 font-bold text-slate-950">Log in</button>
       <p id="message" class="text-sm text-rose-300"></p>
     </form>
-    <details class="mt-8 border-t border-white/10 pt-5">
+    <details id="setup-panel" class="mt-8 border-t border-white/10 pt-5">
       <summary class="cursor-pointer text-sm text-slate-400">First-run setup</summary>
       <form id="setup" class="mt-4 space-y-3">
         <input id="setup-username" required class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Admin username">
@@ -19,17 +19,55 @@
         <button class="w-full rounded-xl border border-cyan-400 px-4 py-3 font-bold text-cyan-300">Create admin</button>
       </form>
     </details>
+    <details class="mt-5 border-t border-white/10 pt-5">
+      <summary class="cursor-pointer text-sm text-slate-400">Join with invite</summary>
+      <form id="invite" class="mt-4 space-y-3">
+        <input id="invite-token" required class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Invite token">
+        <input id="invite-username" required class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Username">
+        <input id="invite-password" required minlength="8" type="password" class="w-full rounded-xl bg-slate-800 px-4 py-3" placeholder="Password (8+ characters)">
+        <button class="w-full rounded-xl border border-violet-400 px-4 py-3 font-bold text-violet-300">Join team</button>
+      </form>
+    </details>
   </main>
   <script>
     async function submit(form, endpoint, ids) {
+      const message = document.getElementById('message');
+      const button = form.querySelector('button');
       const body = {};
-      ids.forEach(([key, id]) => body[key] = document.getElementById(id).value);
-      const response = await fetch(endpoint, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-      if (response.redirected) location.href = response.url;
-      else { const data = await response.json(); document.getElementById('message').textContent = data.detail || 'Request failed'; }
+      ids.forEach(([key, id]) => body[key] = document.getElementById(id).value.trim());
+      button.disabled = true;
+      message.className = 'text-sm text-cyan-300';
+      message.textContent = 'Please wait...';
+      try {
+        const response = await fetch(endpoint, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+        if (response.ok) {
+          const data = await response.json();
+          if (data.ok) {
+            location.href = data.redirect || '/';
+            return;
+          }
+        }
+        {
+          let data = {};
+          try { data = await response.json(); } catch (_) {}
+          message.className = 'text-sm text-rose-300';
+          message.textContent = data.detail || `Request failed (${response.status})`;
+        }
+      } catch (error) {
+        message.className = 'text-sm text-rose-300';
+        message.textContent = 'Cannot reach the local server. Confirm it is running at this address.';
+      } finally {
+        button.disabled = false;
+      }
     }
-    login.onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/login', [['username','username'],['password','password']]); };
-    setup.onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/setup', [['username','setup-username'],['password','setup-password']]); };
+    document.getElementById('login').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/login', [['username','username'],['password','password']]); };
+    document.getElementById('setup').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/setup', [['username','setup-username'],['password','setup-password']]); };
+    document.getElementById('invite').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/accept-invite', [['token','invite-token'],['username','invite-username'],['password','invite-password']]); };
+    fetch('/api/auth/status').then(response => response.json()).then(data => {
+      if (!data.setup_required) {
+        document.getElementById('setup-panel').querySelector('summary').textContent = 'First-run setup (already completed)';
+      }
+    }).catch(() => {});
   </script>
 </body>
 </html>

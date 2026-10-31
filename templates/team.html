@@ -129,6 +129,18 @@
             <div id="account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"></div>
             <form id="add-account" class="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input id="handle" required class="field rounded-lg px-3 py-2 text-sm" placeholder="name.bsky.social"><input id="app-password" required type="password" class="field rounded-lg px-3 py-2 text-sm" placeholder="App password"><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Connect</button><p id="connection-message" class="sm:col-span-3 min-h-4 text-xs muted">Credentials are encrypted before storage.</p></form>
           </section>
+          <section id="team-admin" class="hidden panel rounded-xl p-4">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold text-cyan-200">Team management</h2><button id="create-invite" class="control rounded-lg px-3 py-2 text-xs font-bold">Create invite</button></div>
+            <p class="mb-3 text-xs muted">Invites expire after 48 hours. Members can manage accounts; viewers can only read them.</p>
+            <pre id="invite-output" class="hidden mb-3 whitespace-pre-wrap rounded-lg bg-slate-950/70 p-3 text-xs text-emerald-300"></pre>
+            <form id="create-user" class="mb-4 grid gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3 sm:grid-cols-[1fr_1fr_auto_auto]">
+              <input id="new-username" required minlength="1" class="field rounded px-2 py-2 text-xs" placeholder="New username">
+              <input id="new-password" required minlength="8" type="password" class="field rounded px-2 py-2 text-xs" placeholder="Temporary password (8+ chars)">
+              <select id="new-role" class="field rounded px-2 py-2 text-xs"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select>
+              <button class="control start rounded px-3 py-2 text-xs font-bold">Create user</button>
+            </form>
+            <div id="team-users" class="grid gap-2"></div>
+          </section>
 
           <section id="empty" class="panel rounded-xl p-8 text-center muted">Connect an account or select one above to manage its worker.</section>
           <section id="account-view" class="hidden space-y-3">
@@ -240,7 +252,33 @@
       catch (error) { showToast(error.message, 'error'); }
     };
     async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login'; }
+    async function loadTeamAdmin() {
+      const me = await api('/api/me');
+      if (me.role !== 'admin') return;
+      document.getElementById('team-admin').classList.remove('hidden');
+      const users = await api('/api/team/users');
+      document.getElementById('team-users').innerHTML = users.map(user => `<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3"><span>${user.username} <span class="muted text-xs">${user.is_active ? '' : '(disabled)'}</span></span><span class="flex items-center gap-2"><select class="field rounded px-2 py-1 text-xs" onchange="changeRole(${user.id}, this.value)" ${user.is_active ? '' : 'disabled'}><option ${user.role === 'admin' ? 'selected' : ''}>admin</option><option ${user.role === 'member' ? 'selected' : ''}>member</option><option ${user.role === 'viewer' ? 'selected' : ''}>viewer</option></select><button class="text-xs text-rose-300" onclick="disableUser(${user.id})" ${user.is_active ? '' : 'disabled'}>Disable</button></span></div>`).join('');
+    }
+    async function changeRole(id, role) { try { await api(`/api/team/users/${id}/role`, { method: 'POST', body: JSON.stringify({ role }) }); showToast('Role updated.'); } catch (error) { showToast(error.message, 'error'); loadTeamAdmin(); } }
+    async function disableUser(id) { if (!confirm('Disable this team member?')) return; try { await api(`/api/team/users/${id}/disable`, { method: 'POST' }); await loadTeamAdmin(); showToast('Team member disabled.'); } catch (error) { showToast(error.message, 'error'); } }
+    document.getElementById('create-invite').onclick = async () => { try { const invite = await api('/api/team/invites', { method: 'POST' }); const output = document.getElementById('invite-output'); output.textContent = `Share this one-time invite token (expires in ${invite.expires_in_hours} hours):\n${invite.token}`; output.classList.remove('hidden'); } catch (error) { showToast(error.message, 'error'); } };
+    document.getElementById('create-user').onsubmit = async event => {
+      event.preventDefault();
+      const button = event.target.querySelector('button');
+      button.disabled = true;
+      try {
+        await api('/api/team/users', { method: 'POST', body: JSON.stringify({ username: document.getElementById('new-username').value, password: document.getElementById('new-password').value, role: document.getElementById('new-role').value }) });
+        event.target.reset();
+        await loadTeamAdmin();
+        showToast('Team user created. They can log in now.');
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    };
     loadAccounts();
+    loadTeamAdmin().catch(() => {});
     setInterval(refresh, 20000);
   </script>
 </body>

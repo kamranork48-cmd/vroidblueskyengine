@@ -19,6 +19,8 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(512))
     is_admin: Mapped[bool] = mapped_column(default=False)
+    role: Mapped[str] = mapped_column(String(32), default="member", index=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -29,6 +31,17 @@ class SessionToken(Base):
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class TeamInvite(Base):
+    __tablename__ = "team_invites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class BlueskyAccount(Base):
@@ -80,6 +93,14 @@ def create_database(settings: Settings) -> tuple[Any, sessionmaker[Session]]:
     connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
     engine = create_engine(settings.database_url, connect_args=connect_args)
     Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+        if "role" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(32) DEFAULT 'member'"))
+        if "is_active" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
+        connection.execute(text("UPDATE users SET role = 'admin' WHERE is_admin = TRUE AND (role IS NULL OR role = 'member')"))
+        connection.execute(text("UPDATE users SET is_active = TRUE WHERE is_active IS NULL"))
     if settings.database_url.startswith("sqlite"):
         with engine.begin() as connection:
             columns = {column["name"] for column in inspect(engine).get_columns("target_users")}

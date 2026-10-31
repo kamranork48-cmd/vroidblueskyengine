@@ -10,7 +10,7 @@ from database import count_follows_today, mark_failed, mark_followed, save_disco
 from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
-RELEVANT_TERMS = ("furry", "3d", "2d", "model", "artist", "creator")
+RELEVANT_TERMS = ("furry", "twitch", "vtuber", "pngtuber", "envtuber", "dnd character", "mascot", "logo", "3d", "2d", "anime character",)
 
 
 class BotWorker:

@@ -19,6 +19,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(512))
     is_admin: Mapped[bool] = mapped_column(default=False)
+    is_master_admin: Mapped[bool] = mapped_column(default=False, index=True)
     role: Mapped[str] = mapped_column(String(32), default="member", index=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -97,6 +98,8 @@ def create_database(settings: Settings) -> tuple[Any, sessionmaker[Session]]:
         user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
         if "role" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(32) DEFAULT 'member'"))
+        if "is_master_admin" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN is_master_admin BOOLEAN DEFAULT FALSE"))
         if "is_active" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
         connection.execute(text("UPDATE users SET role = 'admin' WHERE is_admin = TRUE AND (role IS NULL OR role = 'member')"))

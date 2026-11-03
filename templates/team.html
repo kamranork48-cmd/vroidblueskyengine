@@ -94,7 +94,7 @@
         <div class="brand-mark"><svg class="butterfly" width="25" height="25" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
         <div class="min-w-0"><h1 class="truncate text-lg font-bold"><span class="text-cyan-300">BlueSky</span> Signal Desk</h1><p class="text-xs muted">Multi-account worker control</p></div>
       </div>
-      <div class="hidden items-center gap-5 md:flex"><div class="text-right text-xs leading-4 text-cyan-300">Find Streamers<br><span class="muted"><br>Track. Hunt. Grow.</span></div><div class="border-l border-white/15 pl-5 text-2xl">◎</div></div>
+      <div class="flex items-center gap-3"><div class="hidden text-right text-xs leading-4 text-cyan-300 md:block">Find Streamers<br><span class="muted"><br>Track. Hunt. Grow.</span></div><div class="hidden border-l border-white/15 pl-5 text-2xl md:block">◎</div><button id="logout" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Log out</button></div>
     </header>
     <div class="layout">
       <aside class="sidebar flex flex-col justify-between">
@@ -131,7 +131,7 @@
           </section>
           <section id="team-admin" class="hidden panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold text-cyan-200">Team management</h2><button id="create-invite" class="control rounded-lg px-3 py-2 text-xs font-bold">Create invite</button></div>
-            <p class="mb-3 text-xs muted">Invites expire after 48 hours. Members can manage accounts; viewers can only read them.</p>
+            <p class="mb-3 text-xs muted">The master administrator can create, reset, disable, and delete team login users. Passwords are never displayed.</p>
             <pre id="invite-output" class="hidden mb-3 whitespace-pre-wrap rounded-lg bg-slate-950/70 p-3 text-xs text-emerald-300"></pre>
             <form id="create-user" class="mb-4 grid gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3 sm:grid-cols-[1fr_1fr_auto_auto]">
               <input id="new-username" required minlength="1" class="field rounded px-2 py-2 text-xs" placeholder="New username">
@@ -275,16 +275,26 @@
       try { await api(`/api/accounts/${selected}/settings`, { method: 'POST', body: JSON.stringify({ keywords: document.getElementById('keywords').value.split(',').map(item => item.trim()).filter(Boolean), max_followers: Number(document.getElementById('max-followers').value), dry_run: document.getElementById('dry-run').checked, max_follows_per_day: Number(document.getElementById('daily-cap').value), follow_delay_min_seconds: Number(document.getElementById('delay-min').value), follow_delay_max_seconds: Number(document.getElementById('delay-max').value) }) }); await refresh(); showToast('Account settings saved.'); }
       catch (error) { showToast(error.message, 'error'); }
     };
-    async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/login'; }
+    document.getElementById('logout').onclick = async () => {
+      const button = document.getElementById('logout');
+      button.disabled = true;
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } finally {
+        location.href = '/login';
+      }
+    };
     async function loadTeamAdmin() {
       const me = await api('/api/me');
-      if (me.role !== 'admin') return;
+      if (!me.is_master_admin) return;
       document.getElementById('team-admin').classList.remove('hidden');
       const users = await api('/api/team/users');
-      document.getElementById('team-users').innerHTML = users.map(user => `<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3"><span>${user.username} <span class="muted text-xs">${user.is_active ? '' : '(disabled)'}</span></span><span class="flex items-center gap-2"><select class="field rounded px-2 py-1 text-xs" onchange="changeRole(${user.id}, this.value)" ${user.is_active ? '' : 'disabled'}><option ${user.role === 'admin' ? 'selected' : ''}>admin</option><option ${user.role === 'member' ? 'selected' : ''}>member</option><option ${user.role === 'viewer' ? 'selected' : ''}>viewer</option></select><button class="text-xs text-rose-300" onclick="disableUser(${user.id})" ${user.is_active ? '' : 'disabled'}>Disable</button></span></div>`).join('');
+      document.getElementById('team-users').innerHTML = users.map(user => `<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3"><span>${user.username} <span class="muted text-xs">${user.is_master_admin ? '(master)' : user.is_active ? '' : '(disabled)'}</span></span><span class="flex flex-wrap items-center gap-2">${user.is_master_admin ? '' : `<select class="field rounded px-2 py-1 text-xs" onchange="changeRole(${user.id}, this.value)" ${user.is_active ? '' : 'disabled'}><option ${user.role === 'admin' ? 'selected' : ''}>admin</option><option ${user.role === 'member' ? 'selected' : ''}>member</option><option ${user.role === 'viewer' ? 'selected' : ''}>viewer</option></select><button class="text-xs text-cyan-300" onclick="resetUser(${user.id})">Reset password</button><button class="text-xs text-amber-300" onclick="disableUser(${user.id})" ${user.is_active ? '' : 'disabled'}>Disable</button><button class="text-xs text-rose-300" onclick="deleteUser(${user.id}, '${user.username.replace(/'/g, "\\'")}')">Delete</button>`}</span></div>`).join('');
     }
     async function changeRole(id, role) { try { await api(`/api/team/users/${id}/role`, { method: 'POST', body: JSON.stringify({ role }) }); showToast('Role updated.'); } catch (error) { showToast(error.message, 'error'); loadTeamAdmin(); } }
     async function disableUser(id) { if (!confirm('Disable this team member?')) return; try { await api(`/api/team/users/${id}/disable`, { method: 'POST' }); await loadTeamAdmin(); showToast('Team member disabled.'); } catch (error) { showToast(error.message, 'error'); } }
+    async function resetUser(id) { const password = prompt('Enter a new password (8+ characters):'); if (!password) return; try { await api(`/api/team/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ password }) }); await loadTeamAdmin(); showToast('Password reset and active sessions revoked.'); } catch (error) { showToast(error.message, 'error'); } }
+    async function deleteUser(id, username) { if (!confirm(`Delete team user ${username}?`)) return; try { await api(`/api/team/users/${id}`, { method: 'DELETE' }); await loadTeamAdmin(); showToast('Team user deleted.'); } catch (error) { showToast(error.message, 'error'); } }
     document.getElementById('create-invite').onclick = async () => { try { const invite = await api('/api/team/invites', { method: 'POST' }); const output = document.getElementById('invite-output'); output.textContent = `Share this one-time invite token (expires in ${invite.expires_in_hours} hours):\n${invite.token}`; output.classList.remove('hidden'); } catch (error) { showToast(error.message, 'error'); } };
     document.getElementById('create-user').onsubmit = async event => {
       event.preventDefault();

@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from auth import create_session, current_user, decrypt_secret, encrypt_secret, hash_password, verify_password
+from auth import create_session, current_user, decrypt_secret, encrypt_secret, hash_password, revoke_session, revoke_user_sessions, verify_password
 from config import get_settings
 from database import (
     AccountSettings,
@@ -48,6 +48,35 @@ logger.addHandler(file_handler)
 
 engine, session_factory = create_database(settings)
 logs: dict[int, list[dict[str, str]]] = defaultdict(list)
+
+
+def ensure_master_admin() -> None:
+    username = settings.master_admin_username.strip().casefold()
+    if not username:
+        return
+    with session_factory() as session:
+        if session.scalar(select(User).where(User.is_master_admin.is_(True))) is not None:
+            return
+        user = get_user_by_username(session, username)
+        if user is None:
+            if len(settings.master_admin_password) < 8:
+                raise RuntimeError("MASTER_ADMIN_PASSWORD must be at least 8 characters when creating the master admin")
+            user = User(
+                username=username,
+                password_hash=hash_password(settings.master_admin_password),
+                role="admin",
+                is_admin=True,
+                is_master_admin=True,
+            )
+            session.add(user)
+        else:
+            user.role = "admin"
+            user.is_admin = True
+            user.is_master_admin = True
+        session.commit()
+
+
+ensure_master_admin()
 
 
 def publish_log(account_id: int, message: str) -> None:
@@ -94,6 +123,10 @@ class UserCreate(BaseModel):
     role: str = Field(default="member", pattern="^(admin|member|viewer)$")
 
 
+class PasswordReset(BaseModel):
+    password: str = Field(min_length=8, max_length=200)
+
+
 class AccountCreate(BaseModel):
     handle: str = Field(min_length=1, max_length=255)
     app_password: str = Field(min_length=1, max_length=500)
@@ -125,6 +158,13 @@ def require_admin(request: Request) -> User:
     user = require_user(request)
     if effective_role(user) != "admin":
         raise HTTPException(403, "Administrator permission required")
+    return user
+
+
+def require_master_admin(request: Request) -> User:
+    user = require_user(request)
+    if not user.is_master_admin:
+        raise HTTPException(403, "Master administrator permission required")
     return user
 
 
@@ -177,7 +217,7 @@ async def setup_user(payload: SetupRequest):
     with session_factory() as session:
         if session.scalar(select(func.count(User.id))):
             raise HTTPException(409, "Initial setup has already been completed")
-        user = User(username=payload.username.strip().casefold(), password_hash=hash_password(payload.password), is_admin=True, role="admin")
+        user = User(username=payload.username.strip().casefold(), password_hash=hash_password(payload.password), is_admin=True, role="admin", is_master_admin=True)
         session.add(user)
         session.commit()
         token = create_session(session, user, settings)
@@ -199,31 +239,33 @@ async def login(payload: LoginRequest):
 
 
 @app.post("/api/auth/logout")
-async def logout():
+async def logout(request: Request):
+    with session_factory() as session:
+        revoke_session(session, request.cookies.get("session"))
     response = RedirectResponse("/login", status_code=303)
-    response.delete_cookie("session")
+    response.delete_cookie("session", path="/")
     return response
 
 
 @app.get("/api/me")
 async def me(request: Request):
     user = require_user(request)
-    return {"id": user.id, "username": user.username, "role": effective_role(user)}
+    return {"id": user.id, "username": user.username, "role": effective_role(user), "is_master_admin": user.is_master_admin}
 
 
 @app.get("/api/team/users")
 async def team_users(request: Request):
-    require_admin(request)
+    require_master_admin(request)
     with session_factory() as session:
         return [
-            {"id": user.id, "username": user.username, "role": effective_role(user), "is_active": user.is_active}
+            {"id": user.id, "username": user.username, "role": effective_role(user), "is_active": user.is_active, "is_master_admin": user.is_master_admin}
             for user in session.scalars(select(User).order_by(User.username))
         ]
 
 
 @app.post("/api/team/invites")
 async def create_invite(request: Request):
-    admin = require_admin(request)
+    admin = require_master_admin(request)
     raw_token = secrets.token_urlsafe(32)
     with session_factory() as session:
         session.add(
@@ -239,7 +281,7 @@ async def create_invite(request: Request):
 
 @app.post("/api/team/users")
 async def create_team_user(request: Request, payload: UserCreate):
-    require_admin(request)
+    require_master_admin(request)
     username = payload.username.strip().casefold()
     if not username:
         raise HTTPException(400, "Username cannot be empty")
@@ -259,13 +301,13 @@ async def create_team_user(request: Request, payload: UserCreate):
 
 @app.post("/api/team/users/{user_id}/role")
 async def update_user_role(request: Request, user_id: int, payload: RoleUpdate):
-    admin = require_admin(request)
+    require_master_admin(request)
     with session_factory() as session:
         user = session.get(User, user_id)
         if user is None:
             raise HTTPException(404, "User not found")
-        if user.id == admin.id and payload.role != "admin":
-            raise HTTPException(400, "You cannot remove your own administrator role")
+        if user.is_master_admin:
+            raise HTTPException(400, "The master administrator role cannot be changed")
         if effective_role(user) == "admin" and payload.role != "admin":
             admin_count = int(session.scalar(select(func.count(User.id)).where((User.role == "admin") | (User.is_admin.is_(True)), User.is_active.is_(True))) or 0)
             if admin_count <= 1:
@@ -278,17 +320,48 @@ async def update_user_role(request: Request, user_id: int, payload: RoleUpdate):
 
 @app.post("/api/team/users/{user_id}/disable")
 async def disable_user(request: Request, user_id: int):
-    admin = require_admin(request)
+    require_master_admin(request)
     with session_factory() as session:
         user = session.get(User, user_id)
         if user is None:
             raise HTTPException(404, "User not found")
-        if user.id == admin.id:
-            raise HTTPException(400, "You cannot disable your own account")
+        if user.is_master_admin:
+            raise HTTPException(400, "The master administrator cannot be disabled")
         user.is_active = False
         session.query(SessionToken).filter(SessionToken.user_id == user_id).delete(synchronize_session=False)
         session.commit()
     return {"disabled": True}
+
+
+@app.post("/api/team/users/{user_id}/reset-password")
+async def reset_user_password(request: Request, user_id: int, payload: PasswordReset):
+    require_master_admin(request)
+    with session_factory() as session:
+        user = session.get(User, user_id)
+        if user is None:
+            raise HTTPException(404, "User not found")
+        if user.is_master_admin:
+            raise HTTPException(400, "Use MASTER_ADMIN_PASSWORD to manage the master administrator")
+        user.password_hash = hash_password(payload.password)
+        user.is_active = True
+        revoke_user_sessions(session, user_id)
+        session.commit()
+    return {"reset": True}
+
+
+@app.delete("/api/team/users/{user_id}")
+async def delete_user(request: Request, user_id: int):
+    require_master_admin(request)
+    with session_factory() as session:
+        user = session.get(User, user_id)
+        if user is None:
+            raise HTTPException(404, "User not found")
+        if user.is_master_admin:
+            raise HTTPException(400, "The master administrator cannot be deleted")
+        revoke_user_sessions(session, user_id)
+        session.delete(user)
+        session.commit()
+    return {"deleted": True}
 
 
 @app.post("/api/auth/accept-invite")

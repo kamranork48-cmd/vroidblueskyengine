@@ -34,7 +34,10 @@
       const message = document.getElementById('message');
       const button = form.querySelector('button');
       const body = {};
-      ids.forEach(([key, id]) => body[key] = document.getElementById(id).value.trim());
+      ids.forEach(([key, id, trim = true]) => {
+        const value = document.getElementById(id).value;
+        body[key] = trim ? value.trim() : value;
+      });
       button.disabled = true;
       message.className = 'text-sm text-cyan-300';
       message.textContent = 'Please wait...';
@@ -60,9 +63,9 @@
         button.disabled = false;
       }
     }
-    document.getElementById('login').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/login', [['username','username'],['password','password']]); };
-    document.getElementById('setup').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/setup', [['username','setup-username'],['password','setup-password']]); };
-    document.getElementById('invite').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/accept-invite', [['token','invite-token'],['username','invite-username'],['password','invite-password']]); };
+    document.getElementById('login').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/login', [['username','username'],['password','password',false]]); };
+    document.getElementById('setup').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/setup', [['username','setup-username'],['password','setup-password',false]]); };
+    document.getElementById('invite').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/auth/accept-invite', [['token','invite-token'],['username','invite-username'],['password','invite-password',false]]); };
     fetch('/api/auth/status').then(response => response.json()).then(data => {
       if (!data.setup_required) {
         document.getElementById('setup-panel').querySelector('summary').textContent = 'First-run setup (already completed)';

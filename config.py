@@ -7,6 +7,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    master_admin_username: str = Field(default="", validation_alias="MASTER_ADMIN_USERNAME")
+    master_admin_password: str = Field(default="", validation_alias="MASTER_ADMIN_PASSWORD")
     app_encryption_key: str = Field(default="", validation_alias="APP_ENCRYPTION_KEY")
     session_max_age_hours: int = Field(default=24, ge=1, le=720, validation_alias="SESSION_MAX_AGE_HOURS")
     bsky_handle: str = Field(default="", validation_alias="BSKY_HANDLE")

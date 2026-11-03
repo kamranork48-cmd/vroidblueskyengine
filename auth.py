@@ -61,6 +61,19 @@ def create_session(session: Session, user: User, settings: Settings) -> str:
     return raw_token
 
 
+def revoke_session(session: Session, raw_token: str | None) -> None:
+    if not raw_token:
+        return
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    session.query(SessionToken).filter(SessionToken.token_hash == token_hash).delete(synchronize_session=False)
+    session.commit()
+
+
+def revoke_user_sessions(session: Session, user_id: int) -> None:
+    session.query(SessionToken).filter(SessionToken.user_id == user_id).delete(synchronize_session=False)
+    session.commit()
+
+
 def current_user(request: Request, session: Session) -> User:
     raw_token = request.cookies.get("session")
     if not raw_token:

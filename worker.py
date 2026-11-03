@@ -4,6 +4,7 @@ import random
 import re
 from collections.abc import Callable
 
+from artist_filter import assess_profile
 from bsky_client import BlueSkyClient, Profile
 from config import Settings
 from database import count_follows_today, mark_failed, mark_followed, save_discovered_user, target_exists, update_account_status
@@ -171,41 +172,54 @@ class BotWorker:
             await self._inspect_actor(actor, keyword)
 
     async def _inspect_actor(self, actor: object, keyword: str) -> bool:
-            handle = getattr(actor, "handle", None)
-            did = getattr(actor, "did", None)
-            if not handle or not did:
+        handle = getattr(actor, "handle", None)
+        did = getattr(actor, "did", None)
+        if not handle or not did:
+            return False
+        with self.session_factory() as session:
+            if target_exists(session, did, handle, self.account_id):
+                return False
+        try:
+            profile = await asyncio.to_thread(self.client.get_profile, handle)
+            if not await self._matches(profile, keyword):
                 return False
             with self.session_factory() as session:
-                if target_exists(session, did, handle, self.account_id):
-                    return False
-            try:
-                profile = await asyncio.to_thread(self.client.get_profile, handle)
-                if not await self._matches(profile, keyword):
-                    return False
-                with self.session_factory() as session:
-                    save_discovered_user(
-                        session,
-                        account_id=self.account_id,
-                        handle=profile.handle,
-                        did=profile.did,
-                        follower_count=profile.followers_count,
-                        matched_keyword=keyword,
-                    )
-                self.log(f"Matched @{profile.handle} ({profile.followers_count} followers)")
-                await self._follow_if_allowed(profile)
-                return True
-            except Exception as exc:
-                self.log(f"Profile inspection failed for @{handle}: {exc}", logging.WARNING)
-                return False
+                save_discovered_user(
+                    session,
+                    account_id=self.account_id,
+                    handle=profile.handle,
+                    did=profile.did,
+                    follower_count=profile.followers_count,
+                    matched_keyword=keyword,
+                )
+            self.log(f"Matched @{profile.handle} ({profile.followers_count} followers)")
+            await self._follow_if_allowed(profile)
+            return True
+        except Exception as exc:
+            self.log(f"Profile inspection failed for @{handle}: {exc}", logging.WARNING)
+            return False
 
     async def _matches(self, profile: Profile, keyword: str) -> bool:
         if profile.followers_count >= self.settings.max_followers:
             return False
         text = f"{profile.bio} {profile.display_name}"
-        if not self._contains_relevant_term(text):
+        recent = ""
+        if self.settings.artist_filter_enabled or not self._contains_relevant_term(text):
             recent = await asyncio.to_thread(self.client.recent_post_text, profile.handle, self.settings.recent_post_limit)
-            text = f"{text} {recent}"
-        return self._contains_relevant_term(text)
+        combined_text = f"{text} {recent}"
+        if self.settings.artist_filter_enabled:
+            assessment = assess_profile(
+                combined_text,
+                artist_keywords=tuple(self.settings.artist_keywords),
+                audience_keywords=tuple(self.settings.audience_keywords),
+            )
+            if assessment.commission_artist and self.settings.exclude_commission_artists:
+                self.log(
+                    f"Skipped @{profile.handle}: likely commission artist "
+                    f"(artist score {assessment.artist_score}, signals {', '.join(assessment.signals)})"
+                )
+                return False
+        return self._contains_relevant_term(combined_text)
 
     @staticmethod
     def _contains_relevant_term(text: str) -> bool:

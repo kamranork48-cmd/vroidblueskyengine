@@ -145,6 +145,7 @@
           <section id="empty" class="panel rounded-xl p-8 text-center muted">Connect an account or select one above to manage its worker.</section>
           <section id="account-view" class="hidden space-y-3">
             <div id="warning" class="hidden rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-200"></div>
+            <section id="post-discovery" class="panel rounded-xl p-4"><h2 class="mb-2 flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">↗</span>Discover from one post</h2><p class="mb-3 text-xs muted">Use one source at a time. This accepts only a Bluesky post URL, temporarily pauses tag discovery, processes that post's likers, then resumes tag discovery automatically.</p><form id="post-import-form" class="flex flex-col gap-2 sm:flex-row"><input id="post-url" required type="url" pattern="https://bsky\.app/profile/[^/]+/post/[^/?#]+" class="field min-w-0 flex-1 rounded-lg px-3 py-2 text-sm" placeholder="https://bsky.app/profile/name.bsky.social/post/..."><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Discover and follow</button></form><p id="post-import-message" class="mt-2 min-h-4 text-xs muted"></p></section>
             <section id="settings" class="panel rounded-xl p-4"><h2 class="mb-3 flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">⚙</span>Account settings</h2><form id="settings-form" class="grid gap-2 md:grid-cols-2"><div class="relative md:col-span-2"><span class="absolute left-3 top-2 text-lg text-cyan-300">⌕</span><input id="keywords" class="field rounded-lg py-2 pl-10 pr-3 text-sm" placeholder="Search keywords, comma separated"></div><label class="eyebrow">Follower limit<input id="max-followers" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow limit (per day)<input id="daily-cap" type="number" min="0" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow delay (seconds)<input id="delay-min" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Maximum delay (seconds)<input id="delay-max" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="flex items-center gap-2 text-sm text-blue-100 md:col-span-2"><input id="dry-run" type="checkbox" class="h-4 w-4 accent-cyan-400"> Dry run (recommended)</label><button class="save rounded-lg px-4 py-2 text-sm font-bold md:col-span-2">▣ &nbsp;Save settings</button></form></section>
             <section id="logs-panel" class="panel rounded-xl p-4"><div class="mb-2 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">▤</span>Recent logs</h2><a id="export" class="cursor-pointer text-sm font-semibold text-cyan-300 hover:text-white">Export CSV ↓</a></div><pre id="logs" class="logs max-h-48 overflow-auto rounded-lg border border-blue-900/60 p-3 text-[11px] leading-4"></pre></section>
           </section>
@@ -244,6 +245,29 @@
       try { await api('/api/accounts', { method: 'POST', body: JSON.stringify({ handle: document.getElementById('handle').value, app_password: document.getElementById('app-password').value }) }); event.target.reset(); message.textContent = 'Account connected.'; message.className = 'sm:col-span-3 min-h-4 text-xs text-emerald-300'; await loadAccounts(); showToast('Account connected successfully.'); }
       catch (error) { message.textContent = error.message; message.className = 'sm:col-span-3 min-h-4 text-xs text-rose-300'; showToast(error.message, 'error'); }
       finally { button.disabled = false; }
+    };
+    document.getElementById('post-import-form').onsubmit = async event => {
+      event.preventDefault();
+      if (!selected) { showToast('Select an account first.', 'error'); return; }
+      const button = event.target.querySelector('button');
+      const message = document.getElementById('post-import-message');
+      button.disabled = true;
+      message.className = 'mt-2 min-h-4 text-xs text-cyan-300';
+      message.textContent = 'Pausing tag discovery, then fetching post likers...';
+      try {
+        const result = await api(`/api/accounts/${selected}/import-likers`, { method: 'POST', body: JSON.stringify({ post_url: document.getElementById('post-url').value.trim() }) });
+        message.className = 'mt-2 min-h-4 text-xs text-emerald-300';
+        message.textContent = `${result.matched} eligible profiles discovered and processed. Tag discovery ${result.worker_resumed ? 'resumed' : 'was not running'}.`;
+        event.target.reset();
+        await refresh();
+        showToast('Post likers processed successfully.');
+      } catch (error) {
+        message.className = 'mt-2 min-h-4 text-xs text-rose-300';
+        message.textContent = error.message;
+        showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
     };
     document.getElementById('settings-form').onsubmit = async event => {
       event.preventDefault();

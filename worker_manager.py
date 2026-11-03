@@ -28,6 +28,10 @@ class WorkerManager:
                 "follow_delay_max_seconds": account_settings.follow_delay_max_seconds,
                 "recent_post_limit": account_settings.recent_post_limit,
                 "search_keywords": [item.strip() for item in account_settings.search_keywords.split(",") if item.strip()],
+                "artist_filter_enabled": self.base_settings.artist_filter_enabled,
+                "exclude_commission_artists": self.base_settings.exclude_commission_artists,
+                "artist_keywords": tuple(self.base_settings.artist_keywords),
+                "audience_keywords": tuple(self.base_settings.audience_keywords),
             }
         )
 

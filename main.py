@@ -489,13 +489,20 @@ async def update_account_settings(request: Request, account_id: int, payload: Ac
 async def import_likers(request: Request, account_id: int, payload: PostImport):
     require_editor(request)
     worker = account_worker(request, account_id)
+    was_running = worker.status == "running"
+    if was_running:
+        await worker.stop()
     try:
-        return {"matched": await worker.import_post_likers(payload.post_url)}
+        matched = await worker.import_post_likers(payload.post_url)
+        return {"matched": matched, "source": "post", "worker_resumed": was_running}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         logger.exception("Bluesky post import failed")
         raise HTTPException(502, f"Could not import likers: {exc}") from exc
+    finally:
+        if was_running:
+            await worker.start()
 
 
 @app.get("/api/accounts/{account_id}/export.csv")

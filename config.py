@@ -25,6 +25,10 @@ class Settings(BaseSettings):
         validation_alias="SEARCH_KEYWORDS",
     )
     recent_post_limit: int = Field(default=10, ge=1, le=100, validation_alias="RECENT_POST_LIMIT")
+    artist_filter_enabled: bool = Field(default=True, validation_alias="ARTIST_FILTER_ENABLED")
+    exclude_commission_artists: bool = Field(default=True, validation_alias="EXCLUDE_COMMISSION_ARTISTS")
+    artist_keywords: Annotated[list[str], NoDecode] = Field(default_factory=list, validation_alias="ARTIST_KEYWORDS")
+    audience_keywords: Annotated[list[str], NoDecode] = Field(default_factory=list, validation_alias="AUDIENCE_KEYWORDS")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

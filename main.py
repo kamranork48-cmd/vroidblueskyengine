@@ -7,11 +7,12 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from openpyxl import load_workbook
 
 from auth import create_session, current_user, decrypt_secret, encrypt_secret, hash_password, revoke_session, revoke_user_sessions, verify_password
 from config import get_settings
@@ -428,6 +429,65 @@ async def add_account(request: Request, payload: AccountCreate):
             session.query(TargetUser).filter(TargetUser.account_id.is_(None)).update({"account_id": account.id})
         session.commit()
         return {"id": account.id, "handle": account.handle, "status": account.status}
+
+
+@app.post("/api/accounts/import-xlsx")
+async def import_accounts_xlsx(request: Request, file: UploadFile = File(...)):
+    user = require_editor(request)
+    if not file.filename or not file.filename.casefold().endswith(".xlsx"):
+        raise HTTPException(400, "Upload an .xlsx Excel workbook")
+    try:
+        workbook = load_workbook(io.BytesIO(await file.read()), read_only=True, data_only=True)
+    except Exception as exc:
+        raise HTTPException(400, "The uploaded file is not a valid .xlsx workbook") from exc
+    try:
+        sheet = workbook.active
+        rows = sheet.iter_rows(values_only=True)
+        headers = [str(value or "").strip().casefold() for value in next(rows, ())]
+        if "handle" not in headers or "app_password" not in headers:
+            raise HTTPException(400, "The workbook must contain handle and app_password columns")
+        handle_index = headers.index("handle")
+        password_index = headers.index("app_password")
+        results = {"imported": [], "skipped": [], "invalid": []}
+        with session_factory() as session:
+            existing_handles = {account.handle.casefold() for account in list_accounts(session)}
+            had_accounts = bool(existing_handles)
+            for row_number, row in enumerate(rows, start=2):
+                handle = str(row[handle_index] or "").strip().lstrip("@") if handle_index < len(row) else ""
+                app_password = str(row[password_index] or "").strip() if password_index < len(row) else ""
+                if not handle or not app_password:
+                    results["invalid"].append({"row": row_number, "reason": "handle and app_password are required"})
+                    continue
+                normalized_handle = handle.casefold()
+                if normalized_handle in existing_handles:
+                    results["skipped"].append({"row": row_number, "handle": handle, "reason": "already connected"})
+                    continue
+                try:
+                    encrypted = encrypt_secret(settings, app_password)
+                except RuntimeError as exc:
+                    raise HTTPException(503, str(exc)) from exc
+                account = BlueskyAccount(handle=handle, encrypted_app_password=encrypted, created_by_user_id=user.id)
+                session.add(account)
+                session.flush()
+                session.add(AccountSettings(
+                    account_id=account.id,
+                    dry_run=settings.dry_run,
+                    max_follows_per_day=30,
+                    max_followers=settings.max_followers,
+                    follow_delay_min_seconds=60,
+                    follow_delay_max_seconds=180,
+                    recent_post_limit=settings.recent_post_limit,
+                    search_keywords=",".join(settings.search_keywords),
+                ))
+                if not had_accounts:
+                    session.query(TargetUser).filter(TargetUser.account_id.is_(None)).update({"account_id": account.id})
+                had_accounts = True
+                existing_handles.add(normalized_handle)
+                results["imported"].append({"row": row_number, "handle": handle, "status": account.status})
+            session.commit()
+        return results
+    finally:
+        workbook.close()
 
 
 @app.delete("/api/accounts/{account_id}")

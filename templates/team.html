@@ -128,6 +128,7 @@
             <div class="mb-3 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♙</span>Connected accounts</h2><button onclick="loadAccounts()" class="text-xs text-cyan-300 hover:text-white">Refresh</button></div>
             <div id="account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"></div>
             <form id="add-account" class="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input id="handle" required class="field rounded-lg px-3 py-2 text-sm" placeholder="name.bsky.social"><input id="app-password" required type="password" class="field rounded-lg px-3 py-2 text-sm" placeholder="App password"><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Connect</button><p id="connection-message" class="sm:col-span-3 min-h-4 text-xs muted">Credentials are encrypted before storage.</p></form>
+            <form id="import-accounts" class="mt-4 grid gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3 sm:grid-cols-[1fr_auto]"><label class="text-xs muted">Bulk import (.xlsx with <code>handle</code> and <code>app_password</code> columns)<input id="accounts-file" required type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><button class="control rounded-lg px-4 py-2 text-sm font-bold">Import accounts</button><p id="import-accounts-message" class="sm:col-span-2 min-h-4 text-xs muted">Imported workers remain stopped. Duplicate handles are skipped.</p></form>
           </section>
           <section id="team-admin" class="hidden panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold text-cyan-200">Team management</h2><button id="create-invite" class="control rounded-lg px-3 py-2 text-xs font-bold">Create invite</button></div>
@@ -158,7 +159,8 @@
   <script>
     let selected = null;
     async function api(path, options = {}) {
-      const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+      const headers = options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
+      const response = await fetch(path, { headers, ...options });
       if (response.status === 401) { location.href = '/login'; throw new Error('Login required'); }
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'Request failed');
@@ -245,6 +247,30 @@
       try { await api('/api/accounts', { method: 'POST', body: JSON.stringify({ handle: document.getElementById('handle').value, app_password: document.getElementById('app-password').value }) }); event.target.reset(); message.textContent = 'Account connected.'; message.className = 'sm:col-span-3 min-h-4 text-xs text-emerald-300'; await loadAccounts(); showToast('Account connected successfully.'); }
       catch (error) { message.textContent = error.message; message.className = 'sm:col-span-3 min-h-4 text-xs text-rose-300'; showToast(error.message, 'error'); }
       finally { button.disabled = false; }
+    };
+    document.getElementById('import-accounts').onsubmit = async event => {
+      event.preventDefault();
+      const file = document.getElementById('accounts-file').files[0];
+      const message = document.getElementById('import-accounts-message');
+      const button = event.target.querySelector('button');
+      if (!file) return;
+      button.disabled = true;
+      message.className = 'sm:col-span-2 min-h-4 text-xs text-cyan-300';
+      message.textContent = 'Importing and encrypting credentials...';
+      try {
+        const body = new FormData();
+        body.append('file', file);
+        const result = await api('/api/accounts/import-xlsx', { method: 'POST', body });
+        message.className = 'sm:col-span-2 min-h-4 text-xs text-emerald-300';
+        message.textContent = `${result.imported.length} imported, ${result.skipped.length} skipped, ${result.invalid.length} invalid.`;
+        event.target.reset();
+        await loadAccounts();
+        showToast('Account workbook processed.');
+      } catch (error) {
+        message.className = 'sm:col-span-2 min-h-4 text-xs text-rose-300';
+        message.textContent = error.message;
+        showToast(error.message, 'error');
+      } finally { button.disabled = false; }
     };
     document.getElementById('post-import-form').onsubmit = async event => {
       event.preventDefault();

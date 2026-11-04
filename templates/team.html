@@ -291,11 +291,14 @@
         if (accountId) query.set('account_id', accountId);
         if (search) query.set('search', search);
         const result = await api(`/api/inbox?${query}`);
-        const errors = result.errors || [];
-        message.className = `mb-3 min-h-4 text-xs ${errors.length ? 'text-amber-300' : 'muted'}`;
-        message.textContent = errors.length ? `${errors.length} account(s) could not synchronize.` : `${result.conversations.length} conversation(s)`;
+        message.className = result.errors.length ? 'mb-3 min-h-4 text-xs text-amber-300' : 'mb-3 min-h-4 text-xs muted';
+        message.textContent = result.errors.length
+          ? `${result.conversations.length} conversation(s). ${result.errors.length} account(s) need attention.`
+          : result.syncing_account_ids.length
+            ? `${result.conversations.length} cached conversation(s). Syncing ${result.syncing_account_ids.length} account(s) in the background...`
+            : `${result.conversations.length} conversation(s)`;
         document.getElementById('inbox-list').innerHTML = result.conversations.map(item => `<button class="w-full rounded-lg p-3 text-left hover:bg-blue-900/30 ${inboxConversation && inboxConversation.id === item.id && inboxConversation.account_id === item.account_id ? 'bg-blue-900/40' : ''}" onclick="openInboxConversation(${item.account_id}, '${item.id.replace(/'/g, "\\'")}')"><div class="flex items-center gap-2"><div class="h-9 w-9 overflow-hidden rounded-full bg-blue-900/60">${item.participant.avatar ? `<img src="${item.participant.avatar}" alt="" class="h-full w-full object-cover">` : '<span class="grid h-full place-items-center text-cyan-300">●</span>'}</div><div class="min-w-0 flex-1"><strong class="block truncate text-sm">${item.participant.display_name || item.participant.handle || 'Unknown user'}</strong><span class="block truncate text-[11px] muted">@${item.participant.handle} · via @${item.account_handle}</span></div>${item.unread_count ? `<span class="rounded-full bg-cyan-400 px-2 py-0.5 text-[10px] font-bold text-slate-950">${item.unread_count}</span>` : ''}</div><p class="mt-2 truncate text-xs muted">${item.latest_message || 'No messages'}</p><time class="mt-1 block text-[10px] muted">${formatInboxTime(item.last_message_at)}</time></button>`).join('') || '<p class="p-3 text-sm muted">No conversations found.</p>';
-        if (inboxConversation) await openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
+        if (inboxConversation && !silent) await openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
       } catch (error) {
         if (!silent) {
           message.className = 'mb-3 min-h-4 text-xs text-rose-300';
@@ -307,12 +310,19 @@
     }
     async function openInboxConversation(accountId, conversationId, markRead = true) {
       inboxConversation = { account_id: accountId, id: conversationId };
-      const data = await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/messages`);
-      document.getElementById('inbox-header').textContent = `Conversation via @${data.account_handle}`;
-      document.getElementById('inbox-messages').innerHTML = data.messages.map(item => `<div class="inbox-message ${item.is_from_account ? 'outgoing' : 'incoming'} rounded-xl px-3 py-2 text-sm"><p class="whitespace-pre-wrap break-words">${item.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p><time class="mt-1 block text-[10px] opacity-70">${formatInboxTime(item.sent_at)}</time></div>`).join('') || '<p class="text-sm muted">No messages found.</p>';
-      document.getElementById('inbox-messages').scrollTop = document.getElementById('inbox-messages').scrollHeight;
-      document.getElementById('inbox-composer').classList.remove('hidden');
-      if (markRead) await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/read`, { method: 'POST' });
+      document.getElementById('inbox-header').textContent = 'Loading conversation...';
+      try {
+        const data = await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/messages`);
+        document.getElementById('inbox-header').textContent = `Conversation via @${data.account_handle}`;
+        document.getElementById('inbox-messages').innerHTML = data.messages.map(item => `<div class="inbox-message ${item.is_from_account ? 'outgoing' : 'incoming'} rounded-xl px-3 py-2 text-sm"><p class="whitespace-pre-wrap break-words">${item.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p><time class="mt-1 block text-[10px] opacity-70">${formatInboxTime(item.sent_at)}</time></div>`).join('') || '<p class="text-sm muted">No messages found.</p>';
+        document.getElementById('inbox-messages').scrollTop = document.getElementById('inbox-messages').scrollHeight;
+        document.getElementById('inbox-composer').classList.remove('hidden');
+        if (markRead) await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/read`, { method: 'POST' });
+      } catch (error) {
+        document.getElementById('inbox-header').textContent = 'Conversation unavailable';
+        document.getElementById('inbox-messages').innerHTML = `<p class="text-sm text-rose-300">${error.message}</p>`;
+        document.getElementById('inbox-composer').classList.add('hidden');
+      }
     }
     document.getElementById('inbox-account').onchange = loadInbox;
     document.getElementById('inbox-refresh').onclick = loadInbox;
@@ -426,7 +436,10 @@
     loadAccounts().then(loadInbox).catch(error => { document.getElementById('inbox-message').textContent = error.message; });
     loadTeamAdmin().catch(() => {});
     setInterval(refresh, 20000);
-    setInterval(() => loadInbox(true).catch(() => {}), 10000);
+    setInterval(() => loadInbox(true).catch(() => {}), 30000);
+    setInterval(() => {
+      if (inboxConversation) openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
+    }, 30000);
   </script>
 </body>
 </html>

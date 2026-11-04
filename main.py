@@ -4,6 +4,7 @@ import hashlib
 import io
 import logging
 import secrets
+import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -53,6 +54,10 @@ logger.addHandler(file_handler)
 
 engine, session_factory = create_database(settings)
 logs: dict[int, list[dict[str, str]]] = defaultdict(list)
+inbox_sync_tasks: dict[int, asyncio.Task] = {}
+inbox_sync_errors: dict[int, str] = {}
+inbox_sync_cooldown_until: dict[int, float] = {}
+chat_clients: dict[int, BlueSkyClient] = {}
 
 
 def ensure_master_admin() -> None:
@@ -159,11 +164,15 @@ def _chat_client_for_account(account_id: int) -> tuple[BlueskyAccount, BlueSkyCl
         account = get_account(session, account_id)
         if account is None:
             raise HTTPException(404, "Account not found")
-        try:
-            app_password = decrypt_secret(settings, account.encrypted_app_password)
-        except RuntimeError as exc:
-            raise HTTPException(503, str(exc)) from exc
-    return account, BlueSkyClient(account.handle, app_password)
+        client = chat_clients.get(account_id)
+        if client is None:
+            try:
+                app_password = decrypt_secret(settings, account.encrypted_app_password)
+            except RuntimeError as exc:
+                raise HTTPException(503, str(exc)) from exc
+            client = BlueSkyClient(account.handle, app_password)
+            chat_clients[account_id] = client
+    return account, client
 
 
 def _parse_chat_timestamp(value: object) -> datetime | None:
@@ -242,10 +251,15 @@ def _store_chat_message(session, account_id: int, conversation_id: str, payload:
 
 
 def _sync_account_conversations(account_id: int) -> None:
+    if time.monotonic() < inbox_sync_cooldown_until.get(account_id, 0):
+        return
     account, client = _chat_client_for_account(account_id)
     try:
         client._require_login()
     except Exception as exc:
+        chat_clients.pop(account_id, None)
+        if "429" in str(exc):
+            inbox_sync_cooldown_until[account_id] = time.monotonic() + 60
         logger.exception("Inbox authentication failed for account %s", account_id)
         raise HTTPException(502, "Could not authenticate the selected Bluesky account for chat") from exc
     account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
@@ -261,6 +275,30 @@ def _sync_account_conversations(account_id: int) -> None:
             cursor = result.content.get("cursor")
             if not cursor or not conversations:
                 break
+
+
+async def _sync_account_in_background(account_id: int) -> None:
+    try:
+        await asyncio.to_thread(_sync_account_conversations, account_id)
+        inbox_sync_errors.pop(account_id, None)
+    except Exception as exc:
+        message = "Could not synchronize this account's inbox"
+        if "429" in str(exc):
+            inbox_sync_cooldown_until[account_id] = time.monotonic() + 60
+        logger.exception("Inbox synchronization failed for account %s", account_id)
+        inbox_sync_errors[account_id] = message
+    finally:
+        inbox_sync_tasks.pop(account_id, None)
+
+
+def _schedule_inbox_sync(account_ids: list[int]) -> list[int]:
+    scheduled: list[int] = []
+    for account_id in account_ids:
+        task = inbox_sync_tasks.get(account_id)
+        if task is None or task.done():
+            inbox_sync_tasks[account_id] = asyncio.create_task(_sync_account_in_background(account_id))
+            scheduled.append(account_id)
+    return scheduled
 
 
 def _conversation_response(session, conversation: ChatConversation) -> dict:
@@ -543,13 +581,7 @@ async def inbox(request: Request, account_id: int | None = None, search: str = "
     else:
         with session_factory() as session:
             account_ids = [account.id for account in list_accounts(session)]
-    errors: list[dict[str, object]] = []
-    for current_account_id in account_ids:
-        try:
-            await asyncio.to_thread(_sync_account_conversations, current_account_id)
-        except Exception as exc:
-            logger.exception("Inbox synchronization failed for account %s", current_account_id)
-            errors.append({"account_id": current_account_id, "error": str(exc)})
+    scheduled_accounts = _schedule_inbox_sync(account_ids)
     with session_factory() as session:
         query = select(ChatConversation).where(ChatConversation.account_id.in_(account_ids))
         if account_id is not None:
@@ -568,7 +600,12 @@ async def inbox(request: Request, account_id: int | None = None, search: str = "
                 {**_conversation_response(session, item), "account_handle": account_handles.get(item.account_id, "")}
                 for item in conversations
             ],
-            "errors": errors,
+            "syncing_account_ids": scheduled_accounts,
+            "errors": [
+                {"account_id": current_account_id, "error": inbox_sync_errors[current_account_id]}
+                for current_account_id in account_ids
+                if current_account_id in inbox_sync_errors
+            ],
         }
 
 
@@ -818,6 +855,9 @@ async def delete_account(request: Request, account_id: int):
         await worker.stop()
     worker_manager.workers.pop(account_id, None)
     logs.pop(account_id, None)
+    chat_clients.pop(account_id, None)
+    inbox_sync_cooldown_until.pop(account_id, None)
+    inbox_sync_errors.pop(account_id, None)
     with session_factory() as session:
         if not remove_account(session, account_id):
             raise HTTPException(404, "Account not found")

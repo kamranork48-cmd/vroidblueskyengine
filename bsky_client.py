@@ -131,6 +131,7 @@ class BlueSkyClient:
                 convoId=conversation_id,
                 message=models.ChatBskyConvoDefs.MessageInput(text=text),
             ),
+            input_encoding="application/json",
         )
         if not isinstance(response.content, dict):
             raise RuntimeError("Bluesky returned an invalid sent-message response")
@@ -140,6 +141,7 @@ class BlueSkyClient:
         response = self._chat_client().invoke_procedure(
             "chat.bsky.convo.updateRead",
             data=models.ChatBskyConvoUpdateRead.Data(convoId=conversation_id, messageId=message_id),
+            input_encoding="application/json",
         )
         if not response.success:
             raise RuntimeError("Bluesky could not mark the conversation as read")

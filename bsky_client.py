@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from atproto import Client
+from atproto import Client, models
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,11 @@ class Profile:
     display_name: str
     bio: str
     followers_count: int
+
+
+@dataclass(slots=True)
+class ChatResult:
+    content: dict[str, Any]
 
 
 class BlueSkyClient:
@@ -93,3 +98,48 @@ class BlueSkyClient:
         self._require_login()
         record = self.client.follow(did)
         return str(getattr(record, "uri", record))
+
+    def _chat_client(self) -> Any:
+        self._require_login()
+        return self.client.with_bsky_chat_proxy()
+
+    def chat_list_conversations(self, limit: int = 50, cursor: str | None = None) -> ChatResult:
+        params = models.ChatBskyConvoListConvos.Params(
+            limit=min(max(limit, 1), 100),
+            cursor=cursor,
+        )
+        response = self._chat_client().invoke_query("chat.bsky.convo.listConvos", params=params)
+        if not isinstance(response.content, dict):
+            raise RuntimeError("Bluesky returned an invalid conversation response")
+        return ChatResult(response.content)
+
+    def chat_get_messages(self, conversation_id: str, limit: int = 100, cursor: str | None = None) -> ChatResult:
+        params = models.ChatBskyConvoGetMessages.Params(
+            convoId=conversation_id,
+            limit=min(max(limit, 1), 100),
+            cursor=cursor,
+        )
+        response = self._chat_client().invoke_query("chat.bsky.convo.getMessages", params=params)
+        if not isinstance(response.content, dict):
+            raise RuntimeError("Bluesky returned an invalid message response")
+        return ChatResult(response.content)
+
+    def chat_send_message(self, conversation_id: str, text: str) -> ChatResult:
+        response = self._chat_client().invoke_procedure(
+            "chat.bsky.convo.sendMessage",
+            data=models.ChatBskyConvoSendMessage.Data(
+                convoId=conversation_id,
+                message=models.ChatBskyConvoDefs.MessageInput(text=text),
+            ),
+        )
+        if not isinstance(response.content, dict):
+            raise RuntimeError("Bluesky returned an invalid sent-message response")
+        return ChatResult(response.content)
+
+    def chat_mark_read(self, conversation_id: str, message_id: str) -> None:
+        response = self._chat_client().invoke_procedure(
+            "chat.bsky.convo.updateRead",
+            data=models.ChatBskyConvoUpdateRead.Data(convoId=conversation_id, messageId=message_id),
+        )
+        if not response.success:
+            raise RuntimeError("Bluesky could not mark the conversation as read")

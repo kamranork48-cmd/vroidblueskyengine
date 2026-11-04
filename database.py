@@ -86,6 +86,38 @@ class TargetUser(Base):
     status: Mapped[str] = mapped_column(String(32), default="discovered", index=True)
 
 
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+    __table_args__ = (UniqueConstraint("account_id", "conversation_id", name="uq_chat_account_conversation"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bluesky_accounts.id"), index=True)
+    conversation_id: Mapped[str] = mapped_column(String(255))
+    participant_did: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    participant_handle: Mapped[str] = mapped_column(String(255), default="")
+    participant_display_name: Mapped[str] = mapped_column(String(255), default="")
+    participant_avatar: Mapped[str] = mapped_column(String(2000), default="")
+    latest_message_id: Mapped[str] = mapped_column(String(255), default="")
+    latest_message_preview: Mapped[str] = mapped_column(String(1000), default="")
+    latest_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    unread_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    __table_args__ = (UniqueConstraint("account_id", "conversation_id", "message_id", name="uq_chat_account_conversation_message"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bluesky_accounts.id"), index=True)
+    conversation_id: Mapped[str] = mapped_column(String(255), index=True)
+    message_id: Mapped[str] = mapped_column(String(255))
+    sender_did: Mapped[str] = mapped_column(String(255), default="")
+    text: Mapped[str] = mapped_column(String(10000), default="")
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    is_from_account: Mapped[bool] = mapped_column(default=False)
+
+
 def create_database(settings: Settings) -> tuple[Any, sessionmaker[Session]]:
     if settings.require_persistent_database and settings.database_url.startswith("sqlite"):
         raise RuntimeError("REQUIRE_PERSISTENT_DATABASE is enabled; configure Railway DATABASE_URL with PostgreSQL")
@@ -154,6 +186,8 @@ def remove_account(session: Session, account_id: int) -> bool:
         return False
     session.query(TargetUser).filter(TargetUser.account_id == account_id).delete(synchronize_session=False)
     session.query(AccountSettings).filter(AccountSettings.account_id == account_id).delete(synchronize_session=False)
+    session.query(ChatMessage).filter(ChatMessage.account_id == account_id).delete(synchronize_session=False)
+    session.query(ChatConversation).filter(ChatConversation.account_id == account_id).delete(synchronize_session=False)
     session.delete(account)
     session.commit()
     return True

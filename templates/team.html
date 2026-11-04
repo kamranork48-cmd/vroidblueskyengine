@@ -64,6 +64,9 @@
     .logs { color: #80bdf2; background: rgba(1, 10, 23, .72); font-family: "Cascadia Code", Consolas, monospace; }
     .account-row { border: 1px solid transparent; }
     .account-row:hover, .account-row.selected { border-color: var(--line); background: rgba(13, 83, 158, .22); }
+    .inbox-message { max-width: 82%; }
+    .inbox-message.incoming { background: rgba(8, 40, 74, .85); }
+    .inbox-message.outgoing { margin-left: auto; background: linear-gradient(135deg, rgba(20, 139, 218, .8), rgba(92, 72, 214, .8)); }
     .status-pill { transition: color .2s ease, background .2s ease; }
     .status-running { color: #7fffdc; background: rgba(16, 185, 129, .16); }
     .status-paused { color: #ffd479; background: rgba(245, 158, 11, .16); }
@@ -102,6 +105,7 @@
           <a class="nav-item active flex items-center gap-4 px-5 py-4 text-sm" href="#"><span class="nav-icon">⌂</span>Home</a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⌾</span>Hunt</a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#accounts"><span class="nav-icon">♙</span>Accounts</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#inbox"><span class="nav-icon">✉</span>Inbox</a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#logs-panel"><span class="nav-icon">▤</span>Logs</a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⚙</span>Settings</a>
         </nav>
@@ -129,6 +133,21 @@
             <div id="account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"></div>
             <form id="add-account" class="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input id="handle" required class="field rounded-lg px-3 py-2 text-sm" placeholder="name.bsky.social"><input id="app-password" required type="password" class="field rounded-lg px-3 py-2 text-sm" placeholder="App password"><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Connect</button><p id="connection-message" class="sm:col-span-3 min-h-4 text-xs muted">Credentials are encrypted before storage.</p></form>
             <form id="import-accounts" class="mt-4 grid gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3 sm:grid-cols-[1fr_auto]"><label class="text-xs muted">Bulk import (.xlsx with <code>handle</code> and <code>app_password</code> columns)<input id="accounts-file" required type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><button class="control rounded-lg px-4 py-2 text-sm font-bold">Import accounts</button><p id="import-accounts-message" class="sm:col-span-2 min-h-4 text-xs muted">Imported workers remain stopped. Duplicate handles are skipped.</p></form>
+          </section>
+          <section id="inbox" class="panel rounded-xl p-4">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">✉</span>Unified inbox</h2>
+              <div class="flex gap-2"><input id="inbox-search" class="field rounded-lg px-3 py-2 text-xs" placeholder="Search conversations"><select id="inbox-account" class="field rounded-lg px-3 py-2 text-xs"><option value="">All accounts</option></select><button id="inbox-refresh" class="control rounded-lg px-3 py-2 text-xs font-bold">Sync</button></div>
+            </div>
+            <p id="inbox-message" class="mb-3 min-h-4 text-xs muted"></p>
+            <div class="grid min-h-[420px] gap-3 lg:grid-cols-[minmax(260px,340px)_1fr]">
+              <div id="inbox-list" class="space-y-1 overflow-y-auto rounded-lg border border-blue-900/60 p-2"><p class="p-3 text-sm muted">No conversations loaded.</p></div>
+              <div class="flex min-h-[400px] flex-col rounded-lg border border-blue-900/60">
+                <div id="inbox-header" class="border-b border-blue-900/60 p-3 text-sm muted">Select a conversation</div>
+                <div id="inbox-messages" class="flex-1 space-y-2 overflow-y-auto p-3"><p class="text-sm muted">Conversation messages will appear here.</p></div>
+                <form id="inbox-composer" class="hidden flex gap-2 border-t border-blue-900/60 p-3"><input id="inbox-text" maxlength="10000" required class="field min-w-0 flex-1 rounded-lg px-3 py-2 text-sm" placeholder="Write a message"><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Send</button></form>
+              </div>
+            </div>
           </section>
           <section id="team-admin" class="hidden panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold text-cyan-200">Team management</h2><button id="create-invite" class="control rounded-lg px-3 py-2 text-xs font-bold">Create invite</button></div>
@@ -158,6 +177,8 @@
   </div>
   <script>
     let selected = null;
+    let inboxConversation = null;
+    let inboxLoading = false;
     async function api(path, options = {}) {
       const headers = options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
       const response = await fetch(path, { headers, ...options });
@@ -187,6 +208,10 @@
       const data = await api('/api/accounts');
       document.getElementById('account-list').innerHTML = data.map(item => `<div class="account-row flex items-center gap-2 rounded-lg p-2"><button onclick="selectAccount(${item.id})" class="min-w-0 flex-1 p-1 text-left"><span class="block truncate font-semibold text-cyan-100">@${item.handle}</span><span class="${statusClass(item.status)} mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider">${item.status}</span>${item.last_error ? `<span class="mt-1 block truncate text-[10px] text-rose-300" title="${item.last_error}">${item.last_error}</span>` : ''}</button><button onclick="removeAccount(${item.id}, '${item.handle.replace(/'/g, "\\'")}')" class="rounded-md px-2 py-1 text-xs text-rose-300 hover:bg-rose-400/15" title="Remove account">✕</button></div>`).join('') || '<p class="text-sm muted">No accounts connected.</p>';
       document.querySelectorAll('.account-row').forEach(row => row.classList.toggle('selected', row.textContent.includes(document.getElementById('account-handle').textContent.replace('@', ''))));
+      const selector = document.getElementById('inbox-account');
+      const current = selector.value;
+      selector.innerHTML = '<option value="">All accounts</option>' + data.map(item => `<option value="${item.id}">@${item.handle}</option>`).join('');
+      selector.value = current;
     }
     async function selectAccount(id) {
       selected = id;
@@ -246,6 +271,67 @@
       message.textContent = 'Connecting...'; button.disabled = true;
       try { await api('/api/accounts', { method: 'POST', body: JSON.stringify({ handle: document.getElementById('handle').value, app_password: document.getElementById('app-password').value }) }); event.target.reset(); message.textContent = 'Account connected.'; message.className = 'sm:col-span-3 min-h-4 text-xs text-emerald-300'; await loadAccounts(); showToast('Account connected successfully.'); }
       catch (error) { message.textContent = error.message; message.className = 'sm:col-span-3 min-h-4 text-xs text-rose-300'; showToast(error.message, 'error'); }
+      finally { button.disabled = false; }
+    };
+    function formatInboxTime(value) {
+      return value ? new Date(value).toLocaleString() : '';
+    }
+    async function loadInbox(silent = false) {
+      if (inboxLoading) return;
+      inboxLoading = true;
+      const accountId = document.getElementById('inbox-account').value;
+      const search = document.getElementById('inbox-search').value.trim();
+      const message = document.getElementById('inbox-message');
+      if (!silent) {
+        message.className = 'mb-3 min-h-4 text-xs text-cyan-300';
+        message.textContent = 'Synchronizing conversations...';
+      }
+      try {
+        const query = new URLSearchParams();
+        if (accountId) query.set('account_id', accountId);
+        if (search) query.set('search', search);
+        const result = await api(`/api/inbox?${query}`);
+        const errors = result.errors || [];
+        message.className = `mb-3 min-h-4 text-xs ${errors.length ? 'text-amber-300' : 'muted'}`;
+        message.textContent = errors.length ? `${errors.length} account(s) could not synchronize.` : `${result.conversations.length} conversation(s)`;
+        document.getElementById('inbox-list').innerHTML = result.conversations.map(item => `<button class="w-full rounded-lg p-3 text-left hover:bg-blue-900/30 ${inboxConversation && inboxConversation.id === item.id && inboxConversation.account_id === item.account_id ? 'bg-blue-900/40' : ''}" onclick="openInboxConversation(${item.account_id}, '${item.id.replace(/'/g, "\\'")}')"><div class="flex items-center gap-2"><div class="h-9 w-9 overflow-hidden rounded-full bg-blue-900/60">${item.participant.avatar ? `<img src="${item.participant.avatar}" alt="" class="h-full w-full object-cover">` : '<span class="grid h-full place-items-center text-cyan-300">●</span>'}</div><div class="min-w-0 flex-1"><strong class="block truncate text-sm">${item.participant.display_name || item.participant.handle || 'Unknown user'}</strong><span class="block truncate text-[11px] muted">@${item.participant.handle} · via @${item.account_handle}</span></div>${item.unread_count ? `<span class="rounded-full bg-cyan-400 px-2 py-0.5 text-[10px] font-bold text-slate-950">${item.unread_count}</span>` : ''}</div><p class="mt-2 truncate text-xs muted">${item.latest_message || 'No messages'}</p><time class="mt-1 block text-[10px] muted">${formatInboxTime(item.last_message_at)}</time></button>`).join('') || '<p class="p-3 text-sm muted">No conversations found.</p>';
+        if (inboxConversation) await openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
+      } catch (error) {
+        if (!silent) {
+          message.className = 'mb-3 min-h-4 text-xs text-rose-300';
+          message.textContent = error.message;
+        }
+      } finally {
+        inboxLoading = false;
+      }
+    }
+    async function openInboxConversation(accountId, conversationId, markRead = true) {
+      inboxConversation = { account_id: accountId, id: conversationId };
+      const data = await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/messages`);
+      document.getElementById('inbox-header').textContent = `Conversation via @${data.account_handle}`;
+      document.getElementById('inbox-messages').innerHTML = data.messages.map(item => `<div class="inbox-message ${item.is_from_account ? 'outgoing' : 'incoming'} rounded-xl px-3 py-2 text-sm"><p class="whitespace-pre-wrap break-words">${item.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p><time class="mt-1 block text-[10px] opacity-70">${formatInboxTime(item.sent_at)}</time></div>`).join('') || '<p class="text-sm muted">No messages found.</p>';
+      document.getElementById('inbox-messages').scrollTop = document.getElementById('inbox-messages').scrollHeight;
+      document.getElementById('inbox-composer').classList.remove('hidden');
+      if (markRead) await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/read`, { method: 'POST' });
+    }
+    document.getElementById('inbox-account').onchange = loadInbox;
+    document.getElementById('inbox-refresh').onclick = loadInbox;
+    let inboxSearchTimer = null;
+    document.getElementById('inbox-search').oninput = () => {
+      clearTimeout(inboxSearchTimer);
+      inboxSearchTimer = setTimeout(() => loadInbox(), 300);
+    };
+    document.getElementById('inbox-composer').onsubmit = async event => {
+      event.preventDefault();
+      if (!inboxConversation) return;
+      const button = event.target.querySelector('button');
+      button.disabled = true;
+      try {
+        await api(`/api/inbox/${inboxConversation.account_id}/${encodeURIComponent(inboxConversation.id)}/send`, { method: 'POST', body: JSON.stringify({ text: document.getElementById('inbox-text').value }) });
+        document.getElementById('inbox-text').value = '';
+        await openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
+        await loadInbox();
+      } catch (error) { showToast(error.message, 'error'); }
       finally { button.disabled = false; }
     };
     document.getElementById('import-accounts').onsubmit = async event => {
@@ -337,9 +423,10 @@
         button.disabled = false;
       }
     };
-    loadAccounts();
+    loadAccounts().then(loadInbox).catch(error => { document.getElementById('inbox-message').textContent = error.message; });
     loadTeamAdmin().catch(() => {});
     setInterval(refresh, 20000);
+    setInterval(() => loadInbox(true).catch(() => {}), 10000);
   </script>
 </body>
 </html>

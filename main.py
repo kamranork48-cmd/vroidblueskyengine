@@ -1,4 +1,5 @@
 import csv
+import asyncio
 import hashlib
 import io
 import logging
@@ -15,10 +16,13 @@ from sqlalchemy import func, select
 from openpyxl import load_workbook
 
 from auth import create_session, current_user, decrypt_secret, encrypt_secret, hash_password, revoke_session, revoke_user_sessions, verify_password
+from bsky_client import BlueSkyClient
 from config import get_settings
 from database import (
     AccountSettings,
     BlueskyAccount,
+    ChatConversation,
+    ChatMessage,
     SessionToken,
     User,
     TeamInvite,
@@ -144,6 +148,150 @@ class AccountSettingsUpdate(BaseModel):
 
 class PostImport(BaseModel):
     post_url: str = Field(min_length=1, max_length=500)
+
+
+class ChatMessageCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=10000)
+
+
+def _chat_client_for_account(account_id: int) -> tuple[BlueskyAccount, BlueSkyClient]:
+    with session_factory() as session:
+        account = get_account(session, account_id)
+        if account is None:
+            raise HTTPException(404, "Account not found")
+        try:
+            app_password = decrypt_secret(settings, account.encrypted_app_password)
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+    return account, BlueSkyClient(account.handle, app_password)
+
+
+def _parse_chat_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _chat_profile(profile: object) -> dict[str, str]:
+    if not isinstance(profile, dict):
+        return {"did": "", "handle": "", "display_name": "", "avatar": ""}
+    return {
+        "did": str(profile.get("did") or ""),
+        "handle": str(profile.get("handle") or ""),
+        "display_name": str(profile.get("displayName") or profile.get("display_name") or ""),
+        "avatar": str(profile.get("avatar") or ""),
+    }
+
+
+def _upsert_chat_conversation(session, account_id: int, payload: dict, account_did: str) -> ChatConversation:
+    conversation_id = str(payload.get("id") or "")
+    if not conversation_id:
+        raise ValueError("Bluesky returned a conversation without an id")
+    conversation = session.scalar(
+        select(ChatConversation).where(
+            ChatConversation.account_id == account_id,
+            ChatConversation.conversation_id == conversation_id,
+        )
+    )
+    if conversation is None:
+        conversation = ChatConversation(account_id=account_id, conversation_id=conversation_id)
+        session.add(conversation)
+    members = [_chat_profile(member) for member in payload.get("members", [])]
+    other = next((member for member in members if member["did"] != account_did), members[0] if members else {})
+    latest = payload.get("lastMessage") or {}
+    sender = _chat_profile(latest.get("sender"))
+    conversation.participant_did = other.get("did") or None
+    conversation.participant_handle = other.get("handle", "")
+    conversation.participant_display_name = other.get("display_name", "")
+    conversation.participant_avatar = other.get("avatar", "")
+    conversation.latest_message_id = str(latest.get("id") or "")
+    conversation.latest_message_preview = str(latest.get("text") or "")
+    conversation.latest_message_at = _parse_chat_timestamp(latest.get("sentAt"))
+    conversation.unread_count = int(payload.get("unreadCount") or 0)
+    conversation.status = str(payload.get("status") or "active")[:32]
+    return conversation
+
+
+def _store_chat_message(session, account_id: int, conversation_id: str, payload: dict, account_did: str) -> ChatMessage | None:
+    message_id = str(payload.get("id") or "")
+    if not message_id:
+        return None
+    message = session.scalar(
+        select(ChatMessage).where(
+            ChatMessage.account_id == account_id,
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.message_id == message_id,
+        )
+    )
+    if message is None:
+        sender = _chat_profile(payload.get("sender"))
+        message = ChatMessage(
+            account_id=account_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            sender_did=sender["did"],
+            text=str(payload.get("text") or ""),
+            sent_at=_parse_chat_timestamp(payload.get("sentAt")),
+            is_from_account=sender["did"] == account_did,
+        )
+        session.add(message)
+    return message
+
+
+def _sync_account_conversations(account_id: int) -> None:
+    account, client = _chat_client_for_account(account_id)
+    try:
+        client._require_login()
+    except Exception as exc:
+        logger.exception("Inbox authentication failed for account %s", account_id)
+        raise HTTPException(502, "Could not authenticate the selected Bluesky account for chat") from exc
+    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
+    cursor = None
+    with session_factory() as session:
+        for _ in range(5):
+            result = client.chat_list_conversations(cursor=cursor)
+            conversations = result.content.get("convos", [])
+            for payload in conversations:
+                if isinstance(payload, dict):
+                    _upsert_chat_conversation(session, account_id, payload, account_did)
+            session.commit()
+            cursor = result.content.get("cursor")
+            if not cursor or not conversations:
+                break
+
+
+def _conversation_response(session, conversation: ChatConversation) -> dict:
+    target = None
+    if conversation.participant_did:
+        target = session.scalar(
+            select(TargetUser).where(
+                TargetUser.account_id == conversation.account_id,
+                TargetUser.did == conversation.participant_did,
+            )
+        )
+    return {
+        "id": conversation.conversation_id,
+        "account_id": conversation.account_id,
+        "participant": {
+            "did": conversation.participant_did,
+            "handle": conversation.participant_handle,
+            "display_name": conversation.participant_display_name,
+            "avatar": conversation.participant_avatar,
+        },
+        "latest_message": conversation.latest_message_preview,
+        "latest_message_id": conversation.latest_message_id,
+        "last_message_at": conversation.latest_message_at.isoformat() if conversation.latest_message_at else None,
+        "unread_count": conversation.unread_count,
+        "status": conversation.status,
+        "discovery": {
+            "matched_keyword": target.matched_keyword,
+            "follow_status": target.status,
+            "followed_at": target.followed_at_timestamp.isoformat() if target.followed_at_timestamp else None,
+        } if target else None,
+    }
 
 
 def require_user(request: Request) -> User:
@@ -384,6 +532,177 @@ async def accept_invite(payload: InviteAccept):
     response = JSONResponse({"ok": True, "redirect": "/"})
     response.set_cookie("session", token, httponly=True, samesite="lax", max_age=settings.session_max_age_hours * 3600, path="/")
     return response
+
+
+@app.get("/api/inbox")
+async def inbox(request: Request, account_id: int | None = None, search: str = ""):
+    require_user(request)
+    if account_id is not None:
+        require_account(request, account_id)
+        account_ids = [account_id]
+    else:
+        with session_factory() as session:
+            account_ids = [account.id for account in list_accounts(session)]
+    errors: list[dict[str, object]] = []
+    for current_account_id in account_ids:
+        try:
+            await asyncio.to_thread(_sync_account_conversations, current_account_id)
+        except Exception as exc:
+            logger.exception("Inbox synchronization failed for account %s", current_account_id)
+            errors.append({"account_id": current_account_id, "error": str(exc)})
+    with session_factory() as session:
+        query = select(ChatConversation).where(ChatConversation.account_id.in_(account_ids))
+        if account_id is not None:
+            query = query.where(ChatConversation.account_id == account_id)
+        if search.strip():
+            term = f"%{search.strip()}%"
+            query = query.where(
+                (ChatConversation.participant_handle.ilike(term))
+                | (ChatConversation.participant_display_name.ilike(term))
+                | (ChatConversation.latest_message_preview.ilike(term))
+            )
+        conversations = list(session.scalars(query.order_by(ChatConversation.latest_message_at.desc().nullslast())))
+        account_handles = {item.id: item.handle for item in list_accounts(session)}
+        return {
+            "conversations": [
+                {**_conversation_response(session, item), "account_handle": account_handles.get(item.account_id, "")}
+                for item in conversations
+            ],
+            "errors": errors,
+        }
+
+
+@app.get("/api/inbox/{account_id}/{conversation_id}/messages")
+async def inbox_messages(request: Request, account_id: int, conversation_id: str):
+    require_user(request)
+    require_account(request, account_id)
+    account, client = _chat_client_for_account(account_id)
+    try:
+        client._require_login()
+    except Exception as exc:
+        logger.exception("Inbox authentication failed for account %s", account_id)
+        raise HTTPException(502, "Could not authenticate the selected Bluesky account for chat") from exc
+    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
+    try:
+        result = await asyncio.to_thread(client.chat_get_messages, conversation_id)
+    except Exception as exc:
+        logger.exception("Could not load inbox messages for account %s", account_id)
+        raise HTTPException(502, "Could not load this Bluesky conversation") from exc
+    messages = result.content.get("messages", [])
+    with session_factory() as session:
+        conversation = session.scalar(
+            select(ChatConversation).where(
+                ChatConversation.account_id == account_id,
+                ChatConversation.conversation_id == conversation_id,
+            )
+        )
+        if conversation is None:
+            raise HTTPException(404, "Conversation not found for this account")
+        for payload in messages:
+            if isinstance(payload, dict):
+                _store_chat_message(session, account_id, conversation_id, payload, account_did)
+        session.commit()
+        stored = list(session.scalars(
+            select(ChatMessage).where(
+                ChatMessage.account_id == account_id,
+                ChatMessage.conversation_id == conversation_id,
+            ).order_by(ChatMessage.sent_at.asc().nullslast(), ChatMessage.id.asc())
+        ))
+        return {
+            "account_id": account.id,
+            "account_handle": account.handle,
+            "conversation_id": conversation_id,
+            "messages": [
+                {
+                    "id": item.message_id,
+                    "text": item.text,
+                    "sent_at": item.sent_at.isoformat() if item.sent_at else None,
+                    "is_from_account": item.is_from_account,
+                }
+                for item in stored
+            ],
+            "cursor": result.content.get("cursor"),
+        }
+
+
+@app.post("/api/inbox/{account_id}/{conversation_id}/send")
+async def send_inbox_message(request: Request, account_id: int, conversation_id: str, payload: ChatMessageCreate):
+    require_editor(request)
+    require_account(request, account_id)
+    text_value = payload.text.strip()
+    if not text_value:
+        raise HTTPException(400, "Message cannot be empty")
+    account, client = _chat_client_for_account(account_id)
+    try:
+        client._require_login()
+    except Exception as exc:
+        logger.exception("Inbox authentication failed for account %s", account_id)
+        raise HTTPException(502, "Could not authenticate the selected Bluesky account for chat") from exc
+    with session_factory() as session:
+        conversation = session.scalar(
+            select(ChatConversation).where(
+                ChatConversation.account_id == account_id,
+                ChatConversation.conversation_id == conversation_id,
+            )
+        )
+        if conversation is None:
+            raise HTTPException(404, "Conversation not found for this account")
+    try:
+        result = await asyncio.to_thread(client.chat_send_message, conversation_id, text_value)
+    except Exception as exc:
+        logger.exception("Could not send inbox message for account %s", account_id)
+        raise HTTPException(502, "Bluesky did not accept this message") from exc
+    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
+    message_payload = result.content.get("message") if isinstance(result.content.get("message"), dict) else result.content
+    with session_factory() as session:
+        message = _store_chat_message(session, account_id, conversation_id, message_payload, account_did)
+        conversation = session.scalar(
+            select(ChatConversation).where(
+                ChatConversation.account_id == account_id,
+                ChatConversation.conversation_id == conversation_id,
+            )
+        )
+        if conversation is not None and message is not None:
+            conversation.latest_message_id = message.message_id
+            conversation.latest_message_preview = message.text
+            conversation.latest_message_at = message.sent_at
+            conversation.unread_count = 0
+        session.commit()
+        return {"message_id": message.message_id if message else "", "account_id": account.id}
+
+
+@app.post("/api/inbox/{account_id}/{conversation_id}/read")
+async def mark_inbox_read(request: Request, account_id: int, conversation_id: str):
+    require_editor(request)
+    require_account(request, account_id)
+    with session_factory() as session:
+        conversation = session.scalar(
+            select(ChatConversation).where(
+                ChatConversation.account_id == account_id,
+                ChatConversation.conversation_id == conversation_id,
+            )
+        )
+        if conversation is None:
+            raise HTTPException(404, "Conversation not found for this account")
+        message_id = conversation.latest_message_id
+    if message_id:
+        _, client = _chat_client_for_account(account_id)
+        try:
+            await asyncio.to_thread(client.chat_mark_read, conversation_id, message_id)
+        except Exception as exc:
+            logger.exception("Could not mark inbox conversation read for account %s", account_id)
+            raise HTTPException(502, "Could not mark this conversation as read") from exc
+    with session_factory() as session:
+        conversation = session.scalar(
+            select(ChatConversation).where(
+                ChatConversation.account_id == account_id,
+                ChatConversation.conversation_id == conversation_id,
+            )
+        )
+        if conversation:
+            conversation.unread_count = 0
+            session.commit()
+    return {"read": True, "account_id": account_id, "conversation_id": conversation_id}
 
 
 @app.get("/api/accounts")

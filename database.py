@@ -86,6 +86,39 @@ class TargetUser(Base):
     status: Mapped[str] = mapped_column(String(32), default="discovered", index=True)
 
 
+class FollowbackNotification(Base):
+    __tablename__ = "followback_notifications"
+    __table_args__ = (UniqueConstraint("account_id", "did", name="uq_followback_account_did"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bluesky_accounts.id"), index=True)
+    did: Mapped[str] = mapped_column(String(255), index=True)
+    handle: Mapped[str] = mapped_column(String(255), default="")
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    avatar: Mapped[str] = mapped_column(String(2000), default="")
+    message: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AccountNotification(Base):
+    __tablename__ = "account_notifications"
+    __table_args__ = (UniqueConstraint("account_id", "notification_id", name="uq_account_notification"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bluesky_accounts.id"), index=True)
+    notification_id: Mapped[str] = mapped_column(String(1000))
+    reason: Mapped[str] = mapped_column(String(64), default="unknown", index=True)
+    actor_did: Mapped[str] = mapped_column(String(255), default="")
+    actor_handle: Mapped[str] = mapped_column(String(255), default="")
+    actor_display_name: Mapped[str] = mapped_column(String(255), default="")
+    actor_avatar: Mapped[str] = mapped_column(String(2000), default="")
+    subject_uri: Mapped[str] = mapped_column(String(2000), default="")
+    message: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ChatConversation(Base):
     __tablename__ = "chat_conversations"
     __table_args__ = (UniqueConstraint("account_id", "conversation_id", name="uq_chat_account_conversation"),)
@@ -188,6 +221,8 @@ def remove_account(session: Session, account_id: int) -> bool:
     session.query(AccountSettings).filter(AccountSettings.account_id == account_id).delete(synchronize_session=False)
     session.query(ChatMessage).filter(ChatMessage.account_id == account_id).delete(synchronize_session=False)
     session.query(ChatConversation).filter(ChatConversation.account_id == account_id).delete(synchronize_session=False)
+    session.query(FollowbackNotification).filter(FollowbackNotification.account_id == account_id).delete(synchronize_session=False)
+    session.query(AccountNotification).filter(AccountNotification.account_id == account_id).delete(synchronize_session=False)
     session.delete(account)
     session.commit()
     return True

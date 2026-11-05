@@ -36,6 +36,8 @@ from database import (
     target_counts,
     count_follows_today,
     TargetUser,
+    FollowbackNotification,
+    AccountNotification,
     remove_account,
 )
 from worker_manager import WorkerManager
@@ -58,6 +60,8 @@ inbox_sync_tasks: dict[int, asyncio.Task] = {}
 inbox_sync_errors: dict[int, str] = {}
 inbox_sync_cooldown_until: dict[int, float] = {}
 chat_clients: dict[int, BlueSkyClient] = {}
+followback_task: asyncio.Task | None = None
+account_notification_tasks: dict[int, asyncio.Task] = {}
 
 
 def ensure_master_admin() -> None:
@@ -101,8 +105,13 @@ templates = Jinja2Templates(directory="templates")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global followback_task
     logger.info("BlueSky Signal Desk ready")
+    followback_task = asyncio.create_task(_followback_poll_loop(), name="followback-notification-poller")
     yield
+    if followback_task is not None:
+        followback_task.cancel()
+        await asyncio.gather(followback_task, return_exceptions=True)
     await worker_manager.stop_all()
     engine.dispose()
 
@@ -175,6 +184,164 @@ def _chat_client_for_account(account_id: int) -> tuple[BlueskyAccount, BlueSkyCl
     return account, client
 
 
+def _check_account_followbacks(account_id: int) -> None:
+    account, client = _chat_client_for_account(account_id)
+    client._require_login()
+    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or account.did or "")
+    if not account_did:
+        return
+    with session_factory() as session:
+        followed = {
+            target.did: target
+            for target in session.scalars(
+                select(TargetUser).where(
+                    TargetUser.account_id == account_id,
+                    TargetUser.status == "followed",
+                )
+            )
+        }
+    if not followed:
+        return
+    cursor = None
+    followers: dict[str, Any] = {}
+    for _ in range(5):
+        response = client.get_followers(account_did, cursor=cursor)
+        for profile in getattr(response, "followers", []):
+            did = str(getattr(profile, "did", "") or "")
+            if did in followed:
+                followers[did] = profile
+        cursor = getattr(response, "cursor", None)
+        if not cursor or len(followers) == len(followed):
+            break
+    with session_factory() as session:
+        for did, profile in followers.items():
+            if session.scalar(
+                select(FollowbackNotification).where(
+                    FollowbackNotification.account_id == account_id,
+                    FollowbackNotification.did == did,
+                )
+            ):
+                continue
+            target = followed[did]
+            handle = str(getattr(profile, "handle", "") or target.handle)
+            display_name = str(getattr(profile, "display_name", "") or "")
+            session.add(
+                FollowbackNotification(
+                    account_id=account_id,
+                    did=did,
+                    handle=handle,
+                    display_name=display_name,
+                    avatar=str(getattr(profile, "avatar", "") or ""),
+                    message=f"@{handle} followed @{account.handle} back",
+                )
+            )
+            logger.info("Follow-back detected for account %s from @%s", account_id, handle)
+        session.commit()
+
+
+def _notification_value(item: object, key: str, default: object = "") -> object:
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def _sync_account_notifications(account_id: int) -> None:
+    account, client = _chat_client_for_account(account_id)
+    cursor = None
+    with session_factory() as session:
+        for _ in range(3):
+            response = client.list_notifications(limit=100, cursor=cursor)
+            for item in getattr(response, "notifications", []):
+                notification_id = str(_notification_value(item, "cid") or _notification_value(item, "uri") or "")
+                if not notification_id:
+                    continue
+                reason = str(_notification_value(item, "reason", "unknown") or "unknown")
+                author = _notification_value(item, "author", {})
+                actor = _chat_profile(author)
+                indexed_at = _parse_chat_timestamp(_notification_value(item, "indexed_at") or _notification_value(item, "indexedAt"))
+                if indexed_at is None:
+                    indexed_at = datetime.now(timezone.utc)
+                if session.scalar(
+                    select(AccountNotification).where(
+                        AccountNotification.account_id == account_id,
+                        AccountNotification.notification_id == notification_id,
+                    )
+                ):
+                    continue
+                reason_label = {
+                    "like": "liked your post",
+                    "repost": "reposted your post",
+                    "follow": "followed you",
+                    "mention": "mentioned you",
+                    "reply": "replied to your post",
+                    "quote": "quoted your post",
+                    "starterpack": "added you to a starter pack",
+                    "starterpack-joined": "joined your starter pack",
+                    "like-via-repost": "liked your post via a repost",
+                    "repost-via-repost": "reposted your post via a repost",
+                    "subscribed-post": "subscribed to your post",
+                    "contact-match": "matched you as a contact",
+                    "subscribed": "subscribed to you",
+                    "verified": "verified you",
+                    "unverified": "removed verification from you",
+                }.get(reason, f"sent a {reason} notification")
+                session.add(
+                    AccountNotification(
+                        account_id=account_id,
+                        notification_id=notification_id,
+                        reason=reason,
+                        actor_did=actor["did"],
+                        actor_handle=actor["handle"],
+                        actor_display_name=actor["display_name"],
+                        actor_avatar=actor["avatar"],
+                        subject_uri=str(_notification_value(item, "uri", "") or ""),
+                        message=f"@{actor['handle'] or 'Someone'} {reason_label}",
+                        created_at=indexed_at,
+                    )
+                )
+            session.commit()
+            cursor = getattr(response, "cursor", None)
+            if not cursor:
+                break
+
+
+async def _followback_poll_loop() -> None:
+    while True:
+        with session_factory() as session:
+            account_ids = [account.id for account in list_accounts(session)]
+        for account_id in account_ids:
+            try:
+                await asyncio.to_thread(_check_account_followbacks, account_id)
+            except Exception:
+                logger.exception("Follow-back notification check failed for account %s", account_id)
+            try:
+                await asyncio.to_thread(_sync_account_notifications, account_id)
+            except Exception:
+                logger.exception("Bluesky notification check failed for account %s", account_id)
+        await asyncio.sleep(60)
+
+
+async def _sync_account_notifications_in_background(account_id: int) -> None:
+    try:
+        await asyncio.to_thread(_sync_account_notifications, account_id)
+    except Exception:
+        logger.exception("Bluesky notification check failed for account %s", account_id)
+    finally:
+        account_notification_tasks.pop(account_id, None)
+
+
+def _schedule_account_notification_sync(account_ids: list[int]) -> list[int]:
+    scheduled: list[int] = []
+    for account_id in account_ids:
+        task = account_notification_tasks.get(account_id)
+        if task is None or task.done():
+            account_notification_tasks[account_id] = asyncio.create_task(
+                _sync_account_notifications_in_background(account_id)
+            )
+            scheduled.append(account_id)
+    return scheduled
+
+
 def _parse_chat_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -185,13 +352,15 @@ def _parse_chat_timestamp(value: object) -> datetime | None:
 
 
 def _chat_profile(profile: object) -> dict[str, str]:
-    if not isinstance(profile, dict):
-        return {"did": "", "handle": "", "display_name": "", "avatar": ""}
+    if isinstance(profile, dict):
+        get_value = profile.get
+    else:
+        get_value = lambda key, default=None: getattr(profile, key, default)
     return {
-        "did": str(profile.get("did") or ""),
-        "handle": str(profile.get("handle") or ""),
-        "display_name": str(profile.get("displayName") or profile.get("display_name") or ""),
-        "avatar": str(profile.get("avatar") or ""),
+        "did": str(get_value("did") or ""),
+        "handle": str(get_value("handle") or ""),
+        "display_name": str(get_value("displayName") or get_value("display_name") or ""),
+        "avatar": str(get_value("avatar") or ""),
     }
 
 
@@ -609,8 +778,136 @@ async def inbox(request: Request, account_id: int | None = None, search: str = "
         }
 
 
+@app.get("/api/notifications")
+async def notifications(request: Request):
+    require_user(request)
+    with session_factory() as session:
+        account_ids = [account.id for account in list_accounts(session)]
+    scheduled_accounts = _schedule_inbox_sync(account_ids)
+    scheduled_notification_accounts = _schedule_account_notification_sync(account_ids)
+    with session_factory() as session:
+        rows = list(
+            session.scalars(
+                select(FollowbackNotification)
+                .order_by(FollowbackNotification.created_at.desc())
+                .limit(50)
+            )
+        )
+        conversations = list(
+            session.scalars(
+                select(ChatConversation)
+                .where(ChatConversation.unread_count > 0)
+                .order_by(ChatConversation.latest_message_at.desc().nullslast())
+                .limit(50)
+            )
+        )
+        account_notifications = list(
+            session.scalars(
+                select(AccountNotification)
+                .order_by(AccountNotification.created_at.desc())
+                .limit(100)
+            )
+        )
+        account_handles = {account.id: account.handle for account in list_accounts(session)}
+        followback_items = [
+            {
+                "id": f"followback-{item.id}",
+                "type": "followback",
+                "account_id": item.account_id,
+                "account_handle": account_handles.get(item.account_id, ""),
+                "handle": item.handle,
+                "display_name": item.display_name,
+                "avatar": item.avatar,
+                "message": item.message,
+                "created_at": item.created_at.isoformat(),
+                "read": item.read_at is not None,
+            }
+            for item in rows
+        ]
+        message_items = [
+            {
+                "id": f"message-{item.id}",
+                "type": "message",
+                "account_id": item.account_id,
+                "account_handle": account_handles.get(item.account_id, ""),
+                "handle": item.participant_handle,
+                "display_name": item.participant_display_name,
+                "avatar": item.participant_avatar,
+                "message": f"New message from @{item.participant_handle or 'unknown'}: {item.latest_message_preview}",
+                "created_at": item.latest_message_at.isoformat() if item.latest_message_at else "",
+                "read": False,
+                "conversation_id": item.conversation_id,
+                "unread_count": item.unread_count,
+            }
+            for item in conversations
+        ]
+        account_notification_items = [
+            {
+                "id": f"account-notification-{item.id}",
+                "type": item.reason,
+                "account_id": item.account_id,
+                "account_handle": account_handles.get(item.account_id, ""),
+                "handle": item.actor_handle,
+                "display_name": item.actor_display_name,
+                "avatar": item.actor_avatar,
+                "message": item.message,
+                "created_at": item.created_at.isoformat(),
+                "read": item.read_at is not None,
+            }
+            for item in account_notifications
+        ]
+        items = sorted(
+            followback_items + message_items + account_notification_items,
+            key=lambda item: item["created_at"],
+            reverse=True,
+        )
+        return {
+            "notifications": items,
+            "unread_count": sum(
+                item.get("unread_count", 1) if item["type"] == "message" else 1
+                for item in items
+                if not item["read"]
+            ),
+            "syncing_account_ids": scheduled_accounts,
+            "syncing_notification_account_ids": scheduled_notification_accounts,
+        }
+
+
+@app.post("/api/notifications/read")
+async def mark_notifications_read(request: Request):
+    require_user(request)
+    seen_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    with session_factory() as session:
+        account_ids = [account.id for account in list_accounts(session)]
+    for account_id in account_ids:
+        try:
+            _, client = _chat_client_for_account(account_id)
+            await asyncio.to_thread(client.mark_notifications_seen, seen_at)
+        except Exception:
+            logger.exception("Could not mark Bluesky notifications seen for account %s", account_id)
+    with session_factory() as session:
+        session.query(FollowbackNotification).filter(
+            FollowbackNotification.read_at.is_(None)
+        ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
+        session.query(ChatConversation).filter(ChatConversation.unread_count > 0).update(
+            {"unread_count": 0},
+            synchronize_session=False,
+        )
+        session.query(AccountNotification).filter(
+            AccountNotification.read_at.is_(None)
+        ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
+        session.commit()
+    return {"read": True}
+
+
 @app.get("/api/inbox/{account_id}/{conversation_id}/messages")
-async def inbox_messages(request: Request, account_id: int, conversation_id: str):
+async def inbox_messages(
+    request: Request,
+    account_id: int,
+    conversation_id: str,
+    cursor: str | None = None,
+    limit: int = 50,
+):
     require_user(request)
     require_account(request, account_id)
     account, client = _chat_client_for_account(account_id)
@@ -621,7 +918,12 @@ async def inbox_messages(request: Request, account_id: int, conversation_id: str
         raise HTTPException(502, "Could not authenticate the selected Bluesky account for chat") from exc
     account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
     try:
-        result = await asyncio.to_thread(client.chat_get_messages, conversation_id)
+        result = await asyncio.to_thread(
+            client.chat_get_messages,
+            conversation_id,
+            min(max(limit, 1), 100),
+            cursor,
+        )
     except Exception as exc:
         logger.exception("Could not load inbox messages for account %s", account_id)
         raise HTTPException(502, "Could not load this Bluesky conversation") from exc
@@ -635,16 +937,24 @@ async def inbox_messages(request: Request, account_id: int, conversation_id: str
         )
         if conversation is None:
             raise HTTPException(404, "Conversation not found for this account")
+        page_message_ids: list[str] = []
         for payload in messages:
             if isinstance(payload, dict):
                 _store_chat_message(session, account_id, conversation_id, payload, account_did)
+                message_id = str(payload.get("id") or "")
+                if message_id:
+                    page_message_ids.append(message_id)
         session.commit()
-        stored = list(session.scalars(
-            select(ChatMessage).where(
-                ChatMessage.account_id == account_id,
-                ChatMessage.conversation_id == conversation_id,
-            ).order_by(ChatMessage.sent_at.asc().nullslast(), ChatMessage.id.asc())
-        ))
+        if page_message_ids:
+            stored = list(session.scalars(
+                select(ChatMessage).where(
+                    ChatMessage.account_id == account_id,
+                    ChatMessage.conversation_id == conversation_id,
+                    ChatMessage.message_id.in_(page_message_ids),
+                ).order_by(ChatMessage.sent_at.asc().nullslast(), ChatMessage.id.asc())
+            ))
+        else:
+            stored = []
         return {
             "account_id": account.id,
             "account_handle": account.handle,
@@ -659,6 +969,7 @@ async def inbox_messages(request: Request, account_id: int, conversation_id: str
                 for item in stored
             ],
             "cursor": result.content.get("cursor"),
+            "has_more": bool(result.content.get("cursor")),
         }
 
 

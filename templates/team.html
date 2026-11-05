@@ -67,6 +67,9 @@
     .inbox-message { max-width: 82%; }
     .inbox-message.incoming { background: rgba(8, 40, 74, .85); }
     .inbox-message.outgoing { margin-left: auto; background: linear-gradient(135deg, rgba(20, 139, 218, .8), rgba(92, 72, 214, .8)); }
+    .inbox-workspace { height: min(620px, calc(100vh - 260px)); min-height: 420px; }
+    .inbox-conversation-list { min-height: 0; overflow-y: auto; }
+    .inbox-message-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
     .status-pill { transition: color .2s ease, background .2s ease; }
     .status-running { color: #7fffdc; background: rgba(16, 185, 129, .16); }
     .status-paused { color: #ffd479; background: rgba(245, 158, 11, .16); }
@@ -83,6 +86,7 @@
       .nav-item { flex: 0 0 auto; border-left: 0; border-bottom: 3px solid transparent; }
       .nav-item:hover, .nav-item.active { border-left-color: transparent; border-bottom-color: var(--blue); }
       .content { padding: 12px; }
+      .inbox-workspace { height: 70vh; min-height: 380px; }
     }
   </style>
 </head>
@@ -91,13 +95,13 @@
     <header class="topbar flex items-center justify-between gap-5 px-5">
       <div class="flex min-w-0 items-center gap-4">
         <div class="hidden items-center gap-3 border-r border-white/15 pr-5 sm:flex">
-          <div class="text-2xl">🐰</div>
+          <div class="text-2xl"></div>
           <div class="font-display text-lg italic text-white">Vroid<span class="text-violet-300">Studio</span><sup class="text-violet-300">♥</sup></div>
         </div>
         <div class="brand-mark"><svg class="butterfly" width="25" height="25" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
         <div class="min-w-0"><h1 class="truncate text-lg font-bold"><span class="text-cyan-300">BlueSky</span> Signal Desk</h1><p class="text-xs muted">Multi-account worker control</p></div>
       </div>
-      <div class="flex items-center gap-3"><div class="hidden text-right text-xs leading-4 text-cyan-300 md:block">Find Streamers<br><span class="muted"><br>Track. Hunt. Grow.</span></div><div class="hidden border-l border-white/15 pl-5 text-2xl md:block">◎</div><button id="logout" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Log out</button></div>
+      <div class="relative flex items-center gap-3"><button id="logout" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Log out</button></div>
     </header>
     <div class="layout">
       <aside class="sidebar flex flex-col justify-between">
@@ -106,6 +110,7 @@
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⌾</span>Hunt</a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#accounts"><span class="nav-icon">♙</span>Accounts</a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#inbox"><span class="nav-icon">✉</span>Inbox</a>
+          <a id="notifications-nav" class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#notifications"><span class="nav-icon">♧</span><span class="flex-1">Notifications</span><span id="notifications-nav-count" class="hidden rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"></span></a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#logs-panel"><span class="nav-icon">▤</span>Logs</a>
           <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⚙</span>Settings</a>
         </nav>
@@ -140,14 +145,22 @@
               <div class="flex gap-2"><input id="inbox-search" class="field rounded-lg px-3 py-2 text-xs" placeholder="Search conversations"><select id="inbox-account" class="field rounded-lg px-3 py-2 text-xs"><option value="">All accounts</option></select><button id="inbox-refresh" class="control rounded-lg px-3 py-2 text-xs font-bold">Sync</button></div>
             </div>
             <p id="inbox-message" class="mb-3 min-h-4 text-xs muted"></p>
-            <div class="grid min-h-[420px] gap-3 lg:grid-cols-[minmax(260px,340px)_1fr]">
-              <div id="inbox-list" class="space-y-1 overflow-y-auto rounded-lg border border-blue-900/60 p-2"><p class="p-3 text-sm muted">No conversations loaded.</p></div>
-              <div class="flex min-h-[400px] flex-col rounded-lg border border-blue-900/60">
+            <div class="inbox-workspace grid min-h-0 gap-3 lg:grid-cols-[minmax(260px,340px)_1fr]">
+              <div id="inbox-list" class="inbox-conversation-list space-y-1 rounded-lg border border-blue-900/60 p-2"><p class="p-3 text-sm muted">No conversations loaded.</p></div>
+              <div class="flex min-h-0 flex-col rounded-lg border border-blue-900/60">
                 <div id="inbox-header" class="border-b border-blue-900/60 p-3 text-sm muted">Select a conversation</div>
-                <div id="inbox-messages" class="flex-1 space-y-2 overflow-y-auto p-3"><p class="text-sm muted">Conversation messages will appear here.</p></div>
+                <div class="border-b border-blue-900/60 p-2 text-center"><button id="inbox-load-older" type="button" class="hidden text-xs text-cyan-300 hover:text-white">Load older messages</button></div>
+                <div id="inbox-messages" class="inbox-message-list flex-1 space-y-2 p-3"><p class="text-sm muted">Conversation messages will appear here.</p></div>
                 <form id="inbox-composer" class="hidden flex gap-2 border-t border-blue-900/60 p-3"><input id="inbox-text" maxlength="10000" required class="field min-w-0 flex-1 rounded-lg px-3 py-2 text-sm" placeholder="Write a message"><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Send</button></form>
               </div>
             </div>
+          </section>
+          <section id="notifications" class="panel rounded-xl p-4">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♧</span>Notifications</h2><p class="mt-1 text-xs muted">Likes, follows, reposts, replies, mentions, messages, and other activity from every connected account.</p></div>
+              <button id="notifications-refresh" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Refresh</button>
+            </div>
+            <div id="notification-page-list" class="grid gap-2 md:grid-cols-2"><p class="text-sm muted">No follow-backs detected yet.</p></div>
           </section>
           <section id="team-admin" class="hidden panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold text-cyan-200">Team management</h2><button id="create-invite" class="control rounded-lg px-3 py-2 text-xs font-bold">Create invite</button></div>
@@ -172,7 +185,7 @@
         </div>
       </main>
     </div>
-    <footer class="footer flex items-center justify-between px-5 text-xs muted"><div class="flex items-center gap-3"><span class="text-xl text-cyan-300">♥</span><span class="font-semibold">VroidStudio</span><span class="border-l border-white/15 pl-3 text-cyan-300">BlueSky Signal Desk</span></div><div class="hidden gap-5 sm:flex"><span>BlueSky</span><span>YouTube</span><span>Hunt ・ Follow</span><span>Build Your Empire ♛</span></div><div>☁️ 15°C &nbsp; Mostly cloudy</div></footer>
+    <footer class="footer flex items-center justify-between px-5 text-xs muted"><div class="flex items-center gap-3"><span class="text-xl text-cyan-300">♥</span><span class="font-semibold">VroidStudio</span><span class="border-l border-white/15 pl-3 text-cyan-300">BlueSky Signal Desk</span></div><div class="hidden gap-5 sm:flex"><span>BlueSky</span><span></span><span>Hunt ・ Follow</span><span>Build Your Empire ♛</span></div><div>☁️ 15°C &nbsp; Mostly cloudy</div></footer>
     <div id="toast" role="status" aria-live="polite" class="toast panel fixed bottom-6 right-6 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-2xl"></div>
   </div>
   <script>
@@ -195,6 +208,25 @@
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => toast.classList.remove('visible'), 3500);
     }
+    async function loadNotifications() {
+      const result = await api('/api/notifications');
+      const navCount = document.getElementById('notifications-nav-count');
+      navCount.textContent = result.unread_count || '';
+      navCount.classList.toggle('hidden', !result.unread_count);
+      const notificationMarkup = result.notifications.map(item => `<div class="flex gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-2 ${item.read ? '' : 'ring-1 ring-cyan-400/30'}">${item.avatar ? `<img src="${item.avatar}" alt="" class="h-8 w-8 rounded-full object-cover">` : `<span class="grid h-8 w-8 place-items-center rounded-full bg-blue-900/60 text-cyan-300">${item.type === 'message' ? '✉' : '↗'}</span>`}<div class="min-w-0"><p class="text-[10px] uppercase tracking-wide text-cyan-300">${item.type === 'message' ? 'Message' : 'Follow-back'}</p><p class="text-xs text-cyan-100">${item.message}</p><p class="mt-1 truncate text-[10px] muted">via @${item.account_handle} · ${formatInboxTime(item.created_at)}</p></div></div>`).join('');
+      document.getElementById('notification-page-list').innerHTML = notificationMarkup || '<p class="text-sm muted">No follow-backs detected yet.</p>';
+      if (result.syncing_account_ids.length && !result.notifications.length) {
+        document.getElementById('notification-page-list').innerHTML = '<p class="text-sm muted">Checking connected accounts for new notifications...</p>';
+      }
+    }
+    async function markNotificationsRead() {
+      await api('/api/notifications/read', { method: 'POST' });
+      document.getElementById('notifications-nav-count').classList.add('hidden');
+    }
+    document.getElementById('notifications-nav').onclick = async () => {
+      try { await markNotificationsRead(); } catch (error) { showToast(error.message, 'error'); }
+    };
+    document.getElementById('notifications-refresh').onclick = () => loadNotifications().catch(error => showToast(error.message, 'error'));
     function statusClass(status) {
       return `status-pill status-${['running', 'paused', 'error', 'stopped'].includes(status) ? status : 'stopped'}`;
     }
@@ -276,6 +308,11 @@
     function formatInboxTime(value) {
       return value ? new Date(value).toLocaleString() : '';
     }
+    let inboxMessageCursor = null;
+    let inboxMessagesLoading = false;
+    function renderInboxMessages(messages) {
+      return messages.map(item => `<div class="inbox-message ${item.is_from_account ? 'outgoing' : 'incoming'} rounded-xl px-3 py-2 text-sm"><p class="whitespace-pre-wrap break-words">${item.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p><time class="mt-1 block text-[10px] opacity-70">${formatInboxTime(item.sent_at)}</time></div>`).join('') || '<p class="text-sm muted">No messages found.</p>';
+    }
     async function loadInbox(silent = false) {
       if (inboxLoading) return;
       inboxLoading = true;
@@ -310,11 +347,15 @@
     }
     async function openInboxConversation(accountId, conversationId, markRead = true) {
       inboxConversation = { account_id: accountId, id: conversationId };
+      inboxMessageCursor = null;
       document.getElementById('inbox-header').textContent = 'Loading conversation...';
+      document.getElementById('inbox-load-older').classList.add('hidden');
       try {
         const data = await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/messages`);
         document.getElementById('inbox-header').textContent = `Conversation via @${data.account_handle}`;
-        document.getElementById('inbox-messages').innerHTML = data.messages.map(item => `<div class="inbox-message ${item.is_from_account ? 'outgoing' : 'incoming'} rounded-xl px-3 py-2 text-sm"><p class="whitespace-pre-wrap break-words">${item.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p><time class="mt-1 block text-[10px] opacity-70">${formatInboxTime(item.sent_at)}</time></div>`).join('') || '<p class="text-sm muted">No messages found.</p>';
+        document.getElementById('inbox-messages').innerHTML = renderInboxMessages(data.messages);
+        inboxMessageCursor = data.cursor || null;
+        document.getElementById('inbox-load-older').classList.toggle('hidden', !inboxMessageCursor);
         document.getElementById('inbox-messages').scrollTop = document.getElementById('inbox-messages').scrollHeight;
         document.getElementById('inbox-composer').classList.remove('hidden');
         if (markRead) await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/read`, { method: 'POST' });
@@ -324,6 +365,29 @@
         document.getElementById('inbox-composer').classList.add('hidden');
       }
     }
+    document.getElementById('inbox-load-older').onclick = async () => {
+      if (!inboxConversation || !inboxMessageCursor || inboxMessagesLoading) return;
+      inboxMessagesLoading = true;
+      const button = document.getElementById('inbox-load-older');
+      const messagesBox = document.getElementById('inbox-messages');
+      const previousHeight = messagesBox.scrollHeight;
+      button.disabled = true;
+      button.textContent = 'Loading older messages...';
+      try {
+        const query = new URLSearchParams({ cursor: inboxMessageCursor });
+        const data = await api(`/api/inbox/${inboxConversation.account_id}/${encodeURIComponent(inboxConversation.id)}/messages?${query}`);
+        messagesBox.insertAdjacentHTML('afterbegin', renderInboxMessages(data.messages));
+        inboxMessageCursor = data.cursor || null;
+        button.classList.toggle('hidden', !inboxMessageCursor);
+        messagesBox.scrollTop = messagesBox.scrollHeight - previousHeight;
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        inboxMessagesLoading = false;
+        button.disabled = false;
+        button.textContent = 'Load older messages';
+      }
+    };
     document.getElementById('inbox-account').onchange = loadInbox;
     document.getElementById('inbox-refresh').onclick = loadInbox;
     let inboxSearchTimer = null;
@@ -434,9 +498,11 @@
       }
     };
     loadAccounts().then(loadInbox).catch(error => { document.getElementById('inbox-message').textContent = error.message; });
+    loadNotifications().catch(() => {});
     loadTeamAdmin().catch(() => {});
     setInterval(refresh, 20000);
     setInterval(() => loadInbox(true).catch(() => {}), 30000);
+    setInterval(() => loadNotifications().catch(() => {}), 30000);
     setInterval(() => {
       if (inboxConversation) openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
     }, 30000);

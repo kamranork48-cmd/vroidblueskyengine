@@ -99,6 +99,25 @@ class BlueSkyClient:
         record = self.client.follow(did)
         return str(getattr(record, "uri", record))
 
+    def get_followers(self, actor: str, limit: int = 100, cursor: str | None = None) -> Any:
+        self._require_login()
+        return self.client.app.bsky.graph.get_followers({
+            "actor": actor,
+            "limit": min(max(limit, 1), 100),
+            **({"cursor": cursor} if cursor else {}),
+        })
+
+    def list_notifications(self, limit: int = 100, cursor: str | None = None) -> Any:
+        self._require_login()
+        return self.client.app.bsky.notification.list_notifications({
+            "limit": min(max(limit, 1), 100),
+            **({"cursor": cursor} if cursor else {}),
+        })
+
+    def mark_notifications_seen(self, seen_at: str) -> None:
+        self._require_login()
+        self.client.app.bsky.notification.update_seen({"seenAt": seen_at})
+
     def _chat_client(self) -> Any:
         self._require_login()
         return self.client.with_bsky_chat_proxy()

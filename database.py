@@ -197,6 +197,16 @@ def list_accounts(session: Session) -> list[BlueskyAccount]:
     return list(session.scalars(select(BlueskyAccount).order_by(BlueskyAccount.id)))
 
 
+def list_accounts_for_user(session: Session, user_id: int) -> list[BlueskyAccount]:
+    return list(
+        session.scalars(
+            select(BlueskyAccount)
+            .where(BlueskyAccount.created_by_user_id == user_id)
+            .order_by(BlueskyAccount.id)
+        )
+    )
+
+
 def get_account(session: Session, account_id: int) -> BlueskyAccount | None:
     return session.get(BlueskyAccount, account_id)
 

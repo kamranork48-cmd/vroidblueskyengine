@@ -213,8 +213,11 @@
       const navCount = document.getElementById('notifications-nav-count');
       navCount.textContent = result.unread_count || '';
       navCount.classList.toggle('hidden', !result.unread_count);
-      const notificationMarkup = result.notifications.map(item => `<div class="flex gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-2 ${item.read ? '' : 'ring-1 ring-cyan-400/30'}">${item.avatar ? `<img src="${item.avatar}" alt="" class="h-8 w-8 rounded-full object-cover">` : `<span class="grid h-8 w-8 place-items-center rounded-full bg-blue-900/60 text-cyan-300">${item.type === 'message' ? '✉' : '↗'}</span>`}<div class="min-w-0"><p class="text-[10px] uppercase tracking-wide text-cyan-300">${item.type === 'message' ? 'Message' : 'Follow-back'}</p><p class="text-xs text-cyan-100">${item.message}</p><p class="mt-1 truncate text-[10px] muted">via @${item.account_handle} · ${formatInboxTime(item.created_at)}</p></div></div>`).join('');
+      const notificationMarkup = result.notifications.map(item => `<div class="flex gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-2 ${item.read ? '' : 'ring-1 ring-cyan-400/30'}">${item.avatar ? `<img src="${item.avatar}" alt="" class="h-8 w-8 rounded-full object-cover">` : `<span class="grid h-8 w-8 place-items-center rounded-full bg-blue-900/60 text-cyan-300">${item.type === 'message' ? '✉' : '↗'}</span>`}<div class="min-w-0 flex-1"><p class="text-[10px] uppercase tracking-wide text-cyan-300">${item.type === 'message' ? 'Message' : item.type === 'followback' ? 'Follow-back' : item.type}</p><p class="text-xs text-cyan-100">${item.message}</p><p class="mt-1 truncate text-[10px] muted">via @${item.account_handle} · ${formatInboxTime(item.created_at)}</p>${item.type === 'followback' ? `<button type="button" class="control mt-2 rounded-md px-2 py-1 text-[10px] font-semibold" data-followback-chat data-account-id="${item.account_id}" data-member-did="${item.did}">Open chat</button>` : ''}</div></div>`).join('');
       document.getElementById('notification-page-list').innerHTML = notificationMarkup || '<p class="text-sm muted">No follow-backs detected yet.</p>';
+      document.querySelectorAll('[data-followback-chat]').forEach(button => {
+        button.onclick = () => startChatFromFollowback(button.dataset.accountId, button.dataset.memberDid, button);
+      });
       if (result.syncing_account_ids.length && !result.notifications.length) {
         document.getElementById('notification-page-list').innerHTML = '<p class="text-sm muted">Checking connected accounts for new notifications...</p>';
       }
@@ -227,6 +230,21 @@
       try { await markNotificationsRead(); } catch (error) { showToast(error.message, 'error'); }
     };
     document.getElementById('notifications-refresh').onclick = () => loadNotifications().catch(error => showToast(error.message, 'error'));
+    async function startChatFromFollowback(accountId, memberDid, button) {
+      button.disabled = true;
+      button.textContent = 'Opening chat...';
+      try {
+        const result = await api(`/api/inbox/${accountId}/start/${encodeURIComponent(memberDid)}`, { method: 'POST' });
+        document.getElementById('inbox-account').value = String(result.account_id);
+        await loadInbox(true);
+        await openInboxConversation(result.account_id, result.conversation_id);
+        document.getElementById('inbox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (error) {
+        showToast(error.message, 'error');
+        button.disabled = false;
+        button.textContent = 'Open chat';
+      }
+    }
     function statusClass(status) {
       return `status-pill status-${['running', 'paused', 'error', 'stopped'].includes(status) ? status : 'stopped'}`;
     }

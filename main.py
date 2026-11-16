@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from openpyxl import load_workbook
+from atproto import models
 
 from auth import create_session, current_user, decrypt_secret, encrypt_secret, hash_password, revoke_session, revoke_user_sessions, verify_password
 from bsky_client import BlueSkyClient
@@ -32,6 +33,7 @@ from database import (
     get_account_settings,
     get_user_by_username,
     list_accounts,
+    list_accounts_for_user,
     list_targets,
     target_counts,
     count_follows_today,
@@ -532,9 +534,14 @@ def require_editor(request: Request) -> User:
 
 
 def require_account(request: Request, account_id: int) -> BlueskyAccount:
-    require_user(request)
+    user = require_user(request)
     with session_factory() as session:
-        account = get_account(session, account_id)
+        account = session.scalar(
+            select(BlueskyAccount).where(
+                BlueskyAccount.id == account_id,
+                BlueskyAccount.created_by_user_id == user.id,
+            )
+        )
         if account is None:
             raise HTTPException(404, "Account not found")
         return account
@@ -743,13 +750,13 @@ async def accept_invite(payload: InviteAccept):
 
 @app.get("/api/inbox")
 async def inbox(request: Request, account_id: int | None = None, search: str = ""):
-    require_user(request)
+    user = require_user(request)
     if account_id is not None:
         require_account(request, account_id)
         account_ids = [account_id]
     else:
         with session_factory() as session:
-            account_ids = [account.id for account in list_accounts(session)]
+            account_ids = [account.id for account in list_accounts_for_user(session, user.id)]
     scheduled_accounts = _schedule_inbox_sync(account_ids)
     with session_factory() as session:
         query = select(ChatConversation).where(ChatConversation.account_id.in_(account_ids))
@@ -763,7 +770,7 @@ async def inbox(request: Request, account_id: int | None = None, search: str = "
                 | (ChatConversation.latest_message_preview.ilike(term))
             )
         conversations = list(session.scalars(query.order_by(ChatConversation.latest_message_at.desc().nullslast())))
-        account_handles = {item.id: item.handle for item in list_accounts(session)}
+        account_handles = {item.id: item.handle for item in list_accounts_for_user(session, user.id)}
         return {
             "conversations": [
                 {**_conversation_response(session, item), "account_handle": account_handles.get(item.account_id, "")}
@@ -780,15 +787,16 @@ async def inbox(request: Request, account_id: int | None = None, search: str = "
 
 @app.get("/api/notifications")
 async def notifications(request: Request):
-    require_user(request)
+    user = require_user(request)
     with session_factory() as session:
-        account_ids = [account.id for account in list_accounts(session)]
+        account_ids = [account.id for account in list_accounts_for_user(session, user.id)]
     scheduled_accounts = _schedule_inbox_sync(account_ids)
     scheduled_notification_accounts = _schedule_account_notification_sync(account_ids)
     with session_factory() as session:
         rows = list(
             session.scalars(
                 select(FollowbackNotification)
+                .where(FollowbackNotification.account_id.in_(account_ids))
                 .order_by(FollowbackNotification.created_at.desc())
                 .limit(50)
             )
@@ -796,7 +804,10 @@ async def notifications(request: Request):
         conversations = list(
             session.scalars(
                 select(ChatConversation)
-                .where(ChatConversation.unread_count > 0)
+                .where(
+                    ChatConversation.account_id.in_(account_ids),
+                    ChatConversation.unread_count > 0,
+                )
                 .order_by(ChatConversation.latest_message_at.desc().nullslast())
                 .limit(50)
             )
@@ -804,17 +815,19 @@ async def notifications(request: Request):
         account_notifications = list(
             session.scalars(
                 select(AccountNotification)
+                .where(AccountNotification.account_id.in_(account_ids))
                 .order_by(AccountNotification.created_at.desc())
                 .limit(100)
             )
         )
-        account_handles = {account.id: account.handle for account in list_accounts(session)}
+        account_handles = {account.id: account.handle for account in list_accounts_for_user(session, user.id)}
         followback_items = [
             {
                 "id": f"followback-{item.id}",
                 "type": "followback",
                 "account_id": item.account_id,
                 "account_handle": account_handles.get(item.account_id, ""),
+                "did": item.did,
                 "handle": item.handle,
                 "display_name": item.display_name,
                 "avatar": item.avatar,
@@ -873,12 +886,50 @@ async def notifications(request: Request):
         }
 
 
+@app.post("/api/inbox/{account_id}/start/{member_did}")
+async def start_inbox_conversation(request: Request, account_id: int, member_did: str):
+    require_editor(request)
+    require_account(request, account_id)
+    if not member_did.startswith("did:") or len(member_did) > 255:
+        raise HTTPException(400, "A valid Bluesky DID is required")
+    account, client = _chat_client_for_account(account_id)
+    try:
+        client._require_login()
+        result = await asyncio.to_thread(
+            client._chat_client().invoke_query,
+            "chat.bsky.convo.getConvoForMembers",
+            models.ChatBskyConvoGetConvoForMembers.Params(members=[member_did]),
+        )
+    except Exception as exc:
+        logger.exception("Could not start inbox conversation for account %s", account_id)
+        raise HTTPException(502, "Bluesky could not open a conversation with this account") from exc
+    response_content = getattr(result, "content", None)
+    conversation_payload = response_content.get("convo") if isinstance(response_content, dict) else None
+    if not isinstance(conversation_payload, dict):
+        raise HTTPException(502, "Bluesky returned an invalid conversation")
+    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
+    with session_factory() as session:
+        conversation = _upsert_chat_conversation(
+            session,
+            account_id,
+            conversation_payload,
+            account_did,
+        )
+        conversation_id = conversation.conversation_id
+        session.commit()
+    return {
+        "account_id": account.id,
+        "account_handle": account.handle,
+        "conversation_id": conversation_id,
+    }
+
+
 @app.post("/api/notifications/read")
 async def mark_notifications_read(request: Request):
-    require_user(request)
+    user = require_user(request)
     seen_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     with session_factory() as session:
-        account_ids = [account.id for account in list_accounts(session)]
+        account_ids = [account.id for account in list_accounts_for_user(session, user.id)]
     for account_id in account_ids:
         try:
             _, client = _chat_client_for_account(account_id)
@@ -887,13 +938,18 @@ async def mark_notifications_read(request: Request):
             logger.exception("Could not mark Bluesky notifications seen for account %s", account_id)
     with session_factory() as session:
         session.query(FollowbackNotification).filter(
-            FollowbackNotification.read_at.is_(None)
+            FollowbackNotification.account_id.in_(account_ids),
+            FollowbackNotification.read_at.is_(None),
         ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
-        session.query(ChatConversation).filter(ChatConversation.unread_count > 0).update(
+        session.query(ChatConversation).filter(
+            ChatConversation.account_id.in_(account_ids),
+            ChatConversation.unread_count > 0,
+        ).update(
             {"unread_count": 0},
             synchronize_session=False,
         )
         session.query(AccountNotification).filter(
+            AccountNotification.account_id.in_(account_ids),
             AccountNotification.read_at.is_(None)
         ).update({"read_at": datetime.now(timezone.utc)}, synchronize_session=False)
         session.commit()
@@ -1055,7 +1111,7 @@ async def mark_inbox_read(request: Request, account_id: int, conversation_id: st
 
 @app.get("/api/accounts")
 async def accounts(request: Request):
-    require_user(request)
+    user = require_user(request)
     with session_factory() as session:
         return [
             {
@@ -1064,7 +1120,7 @@ async def accounts(request: Request):
                 "status": worker_manager.get(account.id).status if worker_manager.get(account.id) else account.status,
                 "last_error": account.last_error,
             }
-            for account in list_accounts(session)
+            for account in list_accounts_for_user(session, user.id)
         ]
 
 
@@ -1117,7 +1173,7 @@ async def import_accounts_xlsx(request: Request, file: UploadFile = File(...)):
         password_index = headers.index("app_password")
         results = {"imported": [], "skipped": [], "invalid": []}
         with session_factory() as session:
-            existing_handles = {account.handle.casefold() for account in list_accounts(session)}
+            existing_handles = {account.handle.casefold() for account in list_accounts_for_user(session, user.id)}
             had_accounts = bool(existing_handles)
             for row_number, row in enumerate(rows, start=2):
                 handle = str(row[handle_index] or "").strip().lstrip("@") if handle_index < len(row) else ""

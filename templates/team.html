@@ -75,6 +75,8 @@
     .status-paused { color: #ffd479; background: rgba(245, 158, 11, .16); }
     .status-error { color: #ff91a8; background: rgba(244, 63, 94, .16); }
     .status-stopped { color: #a9c5e3; background: rgba(71, 108, 146, .2); }
+    .status-suspended { color: #ffb1bf; background: rgba(244, 63, 94, .24); }
+    .status-restricted, .status-rate_limited { color: #ffd479; background: rgba(245, 158, 11, .16); }
     .toast { opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .2s ease, transform .2s ease; }
     .toast.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
     .toast.success { border-color: rgba(52, 211, 153, .45); color: #9ff5d5; }
@@ -101,7 +103,7 @@
         <div class="brand-mark"><svg class="butterfly" width="25" height="25" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
         <div class="min-w-0"><h1 class="truncate text-lg font-bold"><span class="text-cyan-300">BlueSky</span> Signal Desk</h1><p class="text-xs muted">Multi-account worker control</p></div>
       </div>
-      <div class="relative flex items-center gap-3"><button id="logout" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Log out</button></div>
+      <div class="relative flex items-center gap-3"><button id="emergency-control" type="button" class="control stop rounded-lg px-3 py-2 text-xs font-bold">Emergency stop</button><button id="logout" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Log out</button></div>
     </header>
     <div class="layout">
       <aside class="sidebar flex flex-col justify-between">
@@ -118,12 +120,13 @@
       </aside>
       <main class="content">
         <div class="mx-auto max-w-[1080px] space-y-3">
+          <div id="emergency-banner" class="hidden rounded-xl border border-rose-400/50 bg-rose-500/15 p-3 text-sm text-rose-100"><strong>Global emergency stop is active.</strong> Automated workers are stopped. <span id="emergency-reason"></span></div>
           <section class="panel glow flex flex-col justify-between gap-4 rounded-xl p-4 sm:flex-row sm:items-center">
             <div class="flex min-w-0 items-center gap-4">
               <div class="account-mark"><svg class="butterfly" width="34" height="34" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
               <div class="min-w-0"><p class="eyebrow">Selected account</p><h2 id="account-handle" class="truncate text-lg font-bold">@Select an account</h2><span id="account-status" class="mt-1 inline-flex rounded-full bg-blue-900/60 px-3 py-1 text-xs text-blue-200">No account selected</span></div>
             </div>
-            <div class="flex flex-wrap gap-2"><button data-control="start" onclick="control('start')" class="control start rounded-lg px-5 py-3 text-sm font-bold">▶ &nbsp;Start</button><button data-control="pause" onclick="control('pause')" class="control rounded-lg px-5 py-3 text-sm font-bold">Ⅱ &nbsp;Pause</button><button data-control="stop" onclick="control('stop')" class="control stop rounded-lg px-5 py-3 text-sm font-bold">■ &nbsp;Stop</button></div>
+            <div class="flex flex-wrap gap-2"><button id="review-suspended" class="hidden control rounded-lg px-4 py-3 text-sm font-bold">Mark suspension review complete</button><button data-control="start" onclick="control('start')" class="control start rounded-lg px-5 py-3 text-sm font-bold">▶ &nbsp;Start</button><button data-control="pause" onclick="control('pause')" class="control rounded-lg px-5 py-3 text-sm font-bold">Ⅱ &nbsp;Pause</button><button data-control="stop" onclick="control('stop')" class="control stop rounded-lg px-5 py-3 text-sm font-bold">■ &nbsp;Stop</button></div>
           </section>
 
           <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -160,7 +163,8 @@
               <div><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♧</span>Notifications</h2><p class="mt-1 text-xs muted">Likes, follows, reposts, replies, mentions, messages, and other activity from every connected account.</p></div>
               <button id="notifications-refresh" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Refresh</button>
             </div>
-            <div id="notification-page-list" class="grid gap-2 md:grid-cols-2"><p class="text-sm muted">No follow-backs detected yet.</p></div>
+            <p id="notification-page-status" class="mb-3 min-h-4 text-xs muted"></p>
+            <div id="notification-page-list" class="grid gap-2 md:grid-cols-2"><p class="text-sm muted">No notifications from connected accounts yet.</p></div>
           </section>
           <section id="team-admin" class="hidden panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold text-cyan-200">Team management</h2><button id="create-invite" class="control rounded-lg px-3 py-2 text-xs font-bold">Create invite</button></div>
@@ -180,7 +184,7 @@
             <div id="warning" class="hidden rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-200"></div>
             <section id="post-discovery" class="panel rounded-xl p-4"><h2 class="mb-2 flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">↗</span>Discover from one post</h2><p class="mb-3 text-xs muted">Use one source at a time. This accepts only a Bluesky post URL, temporarily pauses tag discovery, processes that post's likers, then resumes tag discovery automatically.</p><form id="post-import-form" class="flex flex-col gap-2 sm:flex-row"><input id="post-url" required type="url" pattern="https://bsky\.app/profile/[^/]+/post/[^/?#]+" class="field min-w-0 flex-1 rounded-lg px-3 py-2 text-sm" placeholder="https://bsky.app/profile/name.bsky.social/post/..."><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Discover and follow</button></form><p id="post-import-message" class="mt-2 min-h-4 text-xs muted"></p></section>
             <section id="settings" class="panel rounded-xl p-4"><h2 class="mb-3 flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">⚙</span>Account settings</h2><form id="settings-form" class="grid gap-2 md:grid-cols-2"><div class="relative md:col-span-2"><span class="absolute left-3 top-2 text-lg text-cyan-300">⌕</span><input id="keywords" class="field rounded-lg py-2 pl-10 pr-3 text-sm" placeholder="Search keywords, comma separated"></div><label class="eyebrow">Follower limit<input id="max-followers" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow limit (per day)<input id="daily-cap" type="number" min="0" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow delay (seconds)<input id="delay-min" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Maximum delay (seconds)<input id="delay-max" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="flex items-center gap-2 text-sm text-blue-100 md:col-span-2"><input id="dry-run" type="checkbox" class="h-4 w-4 accent-cyan-400"> Dry run (recommended)</label><button class="save rounded-lg px-4 py-2 text-sm font-bold md:col-span-2">▣ &nbsp;Save settings</button></form></section>
-            <section id="logs-panel" class="panel rounded-xl p-4"><div class="mb-2 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">▤</span>Recent logs</h2><a id="export" class="cursor-pointer text-sm font-semibold text-cyan-300 hover:text-white">Export CSV ↓</a></div><pre id="logs" class="logs max-h-48 overflow-auto rounded-lg border border-blue-900/60 p-3 text-[11px] leading-4"></pre></section>
+            <section id="logs-panel" class="panel rounded-xl p-4"><div class="mb-2 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">▤</span>Recent logs</h2><a id="export" class="cursor-pointer text-sm font-semibold text-cyan-300 hover:text-white">Export CSV ↓</a></div><pre id="logs" class="logs max-h-48 overflow-auto rounded-lg border border-blue-900/60 p-3 text-[11px] leading-4"></pre><h3 class="mb-2 mt-4 text-sm font-bold text-cyan-200">Account audit history</h3><pre id="audit-events" class="logs max-h-48 overflow-auto rounded-lg border border-blue-900/60 p-3 text-[11px] leading-4"></pre></section>
           </section>
         </div>
       </main>
@@ -192,6 +196,7 @@
     let selected = null;
     let inboxConversation = null;
     let inboxLoading = false;
+    let globalEmergencyActive = false;
     async function api(path, options = {}) {
       const headers = options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
       const response = await fetch(path, { headers, ...options });
@@ -209,17 +214,31 @@
       toastTimer = setTimeout(() => toast.classList.remove('visible'), 3500);
     }
     async function loadNotifications() {
-      const result = await api('/api/notifications');
-      const navCount = document.getElementById('notifications-nav-count');
-      navCount.textContent = result.unread_count || '';
-      navCount.classList.toggle('hidden', !result.unread_count);
-      const notificationMarkup = result.notifications.map(item => `<div class="flex gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-2 ${item.read ? '' : 'ring-1 ring-cyan-400/30'}">${item.avatar ? `<img src="${item.avatar}" alt="" class="h-8 w-8 rounded-full object-cover">` : `<span class="grid h-8 w-8 place-items-center rounded-full bg-blue-900/60 text-cyan-300">${item.type === 'message' ? '✉' : '↗'}</span>`}<div class="min-w-0 flex-1"><p class="text-[10px] uppercase tracking-wide text-cyan-300">${item.type === 'message' ? 'Message' : item.type === 'followback' ? 'Follow-back' : item.type}</p><p class="text-xs text-cyan-100">${item.message}</p><p class="mt-1 truncate text-[10px] muted">via @${item.account_handle} · ${formatInboxTime(item.created_at)}</p>${item.type === 'followback' ? `<button type="button" class="control mt-2 rounded-md px-2 py-1 text-[10px] font-semibold" data-followback-chat data-account-id="${item.account_id}" data-member-did="${item.did}">Open chat</button>` : ''}</div></div>`).join('');
-      document.getElementById('notification-page-list').innerHTML = notificationMarkup || '<p class="text-sm muted">No follow-backs detected yet.</p>';
-      document.querySelectorAll('[data-followback-chat]').forEach(button => {
-        button.onclick = () => startChatFromFollowback(button.dataset.accountId, button.dataset.memberDid, button);
-      });
-      if (result.syncing_account_ids.length && !result.notifications.length) {
-        document.getElementById('notification-page-list').innerHTML = '<p class="text-sm muted">Checking connected accounts for new notifications...</p>';
+      const status = document.getElementById('notification-page-status');
+      try {
+        const result = await api('/api/notifications');
+        const navCount = document.getElementById('notifications-nav-count');
+        navCount.textContent = result.unread_count || '';
+        navCount.classList.toggle('hidden', !result.unread_count);
+        const notificationMarkup = result.notifications.map(item => `<div class="flex gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-2 ${item.read ? '' : 'ring-1 ring-cyan-400/30'}">${item.avatar ? `<img src="${item.avatar}" alt="" class="h-8 w-8 rounded-full object-cover">` : `<span class="grid h-8 w-8 place-items-center rounded-full bg-blue-900/60 text-cyan-300">${item.type === 'message' ? '✉' : '↗'}</span>`}<div class="min-w-0 flex-1"><p class="text-[10px] uppercase tracking-wide text-cyan-300">${item.type === 'message' ? 'Message' : item.type === 'followback' ? 'Follow-back' : item.type}</p><p class="text-xs text-cyan-100">${item.message}</p><p class="mt-1 truncate text-[10px] muted">via @${item.account_handle} · ${formatInboxTime(item.created_at)}</p>${item.type === 'followback' ? `<button type="button" class="control mt-2 rounded-md px-2 py-1 text-[10px] font-semibold" data-followback-chat data-account-id="${item.account_id}" data-member-did="${item.did}">Open chat</button>` : ''}</div></div>`).join('');
+        document.getElementById('notification-page-list').innerHTML = notificationMarkup || '<p class="text-sm muted">No notifications from connected accounts yet.</p>';
+        document.querySelectorAll('[data-followback-chat]').forEach(button => {
+          button.onclick = () => startChatFromFollowback(button.dataset.accountId, button.dataset.memberDid, button);
+        });
+        if (result.notification_errors.length) {
+          status.className = 'mb-3 min-h-4 text-xs text-amber-300';
+          status.textContent = result.notification_errors.map(item => `@${item.account_handle || item.account_id}: ${item.error}`).join(' ');
+        } else if (result.syncing_notification_account_ids.length) {
+          status.className = 'mb-3 min-h-4 text-xs muted';
+          status.textContent = `Syncing notifications from ${result.syncing_notification_account_ids.length} connected account(s)...`;
+        } else {
+          status.className = 'mb-3 min-h-4 text-xs muted';
+          status.textContent = `${result.notifications.length} notification(s) from connected accounts.`;
+        }
+      } catch (error) {
+        status.className = 'mb-3 min-h-4 text-xs text-rose-300';
+        status.textContent = `Could not load notifications: ${error.message}`;
+        throw error;
       }
     }
     async function markNotificationsRead() {
@@ -246,13 +265,25 @@
       }
     }
     function statusClass(status) {
-      return `status-pill status-${['running', 'paused', 'error', 'stopped'].includes(status) ? status : 'stopped'}`;
+      return `status-pill status-${['running', 'paused', 'error', 'stopped', 'suspended', 'restricted', 'rate_limited'].includes(status) ? status : 'stopped'}`;
     }
     function setControlState(status) {
       document.querySelectorAll('[data-control]').forEach(button => {
         const action = button.dataset.control;
-        button.disabled = !selected || (action === 'start' && status === 'running') || (action === 'pause' && status !== 'running') || (action === 'stop' && status === 'stopped');
+        button.disabled = !selected || (globalEmergencyActive && action !== 'stop') || (action === 'start' && ['running', 'suspended'].includes(status)) || (action === 'pause' && status !== 'running') || (action === 'stop' && status === 'stopped');
       });
+    }
+    async function loadEmergencyControl() {
+      const state = await api('/api/system/control');
+      globalEmergencyActive = state.active;
+      const button = document.getElementById('emergency-control');
+      const banner = document.getElementById('emergency-banner');
+      button.textContent = state.active ? (state.can_clear ? 'Clear emergency stop' : 'Emergency stop active') : 'Emergency stop';
+      button.disabled = state.active && !state.can_clear;
+      button.className = `control ${state.active ? (state.can_clear ? 'start' : 'stop') : 'stop'} rounded-lg px-3 py-2 text-xs font-bold`;
+      banner.classList.toggle('hidden', !state.active);
+      document.getElementById('emergency-reason').textContent = state.reason || '';
+      if (selected) setControlState(document.getElementById('status').textContent);
     }
     async function loadAccounts() {
       const data = await api('/api/accounts');
@@ -268,8 +299,14 @@
       document.getElementById('empty').classList.add('hidden');
       document.getElementById('account-view').classList.remove('hidden');
       document.getElementById('export').href = `/api/accounts/${id}/export.csv`;
-      await refresh();
-      await loadAccounts();
+      try {
+        await refresh();
+        await loadAccounts();
+      } catch (error) {
+        document.getElementById('warning').textContent = error.message;
+        document.getElementById('warning').classList.remove('hidden');
+        showToast(`Could not load this account: ${error.message}`, 'error');
+      }
     }
     async function refresh() {
       if (!selected) return;
@@ -283,7 +320,11 @@
       document.getElementById('mode').textContent = data.dry_run ? 'Dry run' : 'Live';
       document.getElementById('warning').textContent = data.last_error || '';
       document.getElementById('warning').classList.toggle('hidden', !data.last_error);
+      const reviewButton = document.getElementById('review-suspended');
+      reviewButton.classList.toggle('hidden', data.status !== 'suspended' || !data.can_review_suspension);
       document.getElementById('logs').textContent = data.logs.map(item => `${item.timestamp} ${item.message}`).join('\n') || 'Waiting for worker activity...';
+      const auditEvents = Array.isArray(data.audit_events) ? data.audit_events : [];
+      document.getElementById('audit-events').textContent = auditEvents.map(item => `${item.created_at} [${item.severity}] ${item.event_type}${item.category ? ` ${item.category}` : ''}${item.http_status ? ` HTTP ${item.http_status}` : ''}${item.code ? ` (${item.code})` : ''}${item.retry_after ? ` Retry-After ${item.retry_after}` : ''} ${item.message}`).join('\n') || 'No recorded account events.';
       document.getElementById('keywords').value = data.keywords.join(', ');
       document.getElementById('max-followers').value = data.max_followers;
       document.getElementById('daily-cap').value = data.max_follows_per_day;
@@ -348,7 +389,7 @@
         const result = await api(`/api/inbox?${query}`);
         message.className = result.errors.length ? 'mb-3 min-h-4 text-xs text-amber-300' : 'mb-3 min-h-4 text-xs muted';
         message.textContent = result.errors.length
-          ? `${result.conversations.length} conversation(s). ${result.errors.length} account(s) need attention.`
+          ? `${result.conversations.length} conversation(s). ${result.errors.map(item => `@${item.account_handle || item.account_id}: ${item.error}`).join(' ')}`
           : result.syncing_account_ids.length
             ? `${result.conversations.length} cached conversation(s). Syncing ${result.syncing_account_ids.length} account(s) in the background...`
             : `${result.conversations.length} conversation(s)`;
@@ -376,7 +417,13 @@
         document.getElementById('inbox-load-older').classList.toggle('hidden', !inboxMessageCursor);
         document.getElementById('inbox-messages').scrollTop = document.getElementById('inbox-messages').scrollHeight;
         document.getElementById('inbox-composer').classList.remove('hidden');
-        if (markRead) await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/read`, { method: 'POST' });
+        if (markRead) {
+          try {
+            await api(`/api/inbox/${accountId}/${encodeURIComponent(conversationId)}/read`, { method: 'POST' });
+          } catch (error) {
+            showToast(`Messages loaded, but could not mark this conversation as read: ${error.message}`, 'error');
+          }
+        }
       } catch (error) {
         document.getElementById('inbox-header').textContent = 'Conversation unavailable';
         document.getElementById('inbox-messages').innerHTML = `<p class="text-sm text-rose-300">${error.message}</p>`;
@@ -488,6 +535,41 @@
         location.href = '/login';
       }
     };
+    document.getElementById('emergency-control').onclick = async () => {
+      const button = document.getElementById('emergency-control');
+      button.disabled = true;
+      try {
+        const state = await api('/api/system/control');
+        if (state.active) {
+          if (!state.can_clear || !confirm('Clear the global stop? This will allow workers to be started manually; it will not restart them.')) return;
+          await api('/api/system/emergency-stop/clear', { method: 'POST' });
+          showToast('Global emergency stop cleared. Workers remain stopped.');
+        } else {
+          if (!confirm('Stop all active workers now?')) return;
+          await api('/api/system/emergency-stop', { method: 'POST' });
+          showToast('Global emergency stop activated.', 'error');
+        }
+        await loadEmergencyControl();
+        await loadAccounts();
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        await loadEmergencyControl().catch(error => showToast(error.message, 'error'));
+      }
+    };
+    document.getElementById('review-suspended').onclick = async () => {
+      if (!selected) return;
+      const reviewNote = prompt('Confirm that the Bluesky account status has been reviewed and resolved. Add a short note (10+ characters):');
+      if (!reviewNote) return;
+      try {
+        await api(`/api/accounts/${selected}/review-suspension`, { method: 'POST', body: JSON.stringify({ review_note: reviewNote.trim() }) });
+        await refresh();
+        await loadAccounts();
+        showToast('Review recorded. The account remains stopped until manually started.');
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    };
     async function loadTeamAdmin() {
       const me = await api('/api/me');
       if (!me.is_master_admin) return;
@@ -516,9 +598,11 @@
       }
     };
     loadAccounts().then(loadInbox).catch(error => { document.getElementById('inbox-message').textContent = error.message; });
+    loadEmergencyControl().catch(error => showToast(error.message, 'error'));
     loadNotifications().catch(() => {});
     loadTeamAdmin().catch(() => {});
     setInterval(refresh, 20000);
+    setInterval(() => loadEmergencyControl().catch(error => showToast(error.message, 'error')), 20000);
     setInterval(() => loadInbox(true).catch(() => {}), 30000);
     setInterval(() => loadNotifications().catch(() => {}), 30000);
     setInterval(() => {

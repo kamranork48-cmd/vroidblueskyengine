@@ -2,7 +2,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine, func, inspect, select, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+    func,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from config import Settings
@@ -54,8 +66,43 @@ class BlueskyAccount(Base):
     encrypted_app_password: Mapped[str] = mapped_column(String(1024))
     status: Mapped[str] = mapped_column(String(32), default="stopped", index=True)
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    chat_sync_status: Mapped[str] = mapped_column(String(32), default="ok")
+    chat_sync_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    chat_sync_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class SystemControl(Base):
+    __tablename__ = "system_controls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    emergency_stop_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    emergency_stop_reason: Mapped[str] = mapped_column(String(500), default="")
+    updated_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    account_owner_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    account_handle: Mapped[str] = mapped_column(String(255), default="")
+    actor_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    severity: Mapped[str] = mapped_column(String(16), default="info")
+    category: Mapped[str] = mapped_column(String(40), default="")
+    code: Mapped[str] = mapped_column(String(100), default="")
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retry_after: Mapped[str] = mapped_column(String(100), default="")
+    message: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
 
 
 class AccountSettings(Base):
@@ -169,6 +216,37 @@ def create_database(settings: Settings) -> tuple[Any, sessionmaker[Session]]:
             connection.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
         connection.execute(text("UPDATE users SET role = 'admin' WHERE is_admin = TRUE AND (role IS NULL OR role = 'member')"))
         connection.execute(text("UPDATE users SET is_active = TRUE WHERE is_active IS NULL"))
+        account_columns = {column["name"] for column in inspect(engine).get_columns("bluesky_accounts")}
+        account_migrations = {
+            "chat_sync_status": "VARCHAR(32) DEFAULT 'ok' NOT NULL",
+            "chat_sync_error": "VARCHAR(500)",
+            "chat_sync_retry_at": (
+                "DATETIME" if engine.dialect.name == "sqlite" else "TIMESTAMP WITH TIME ZONE"
+            ),
+        }
+        for column_name, column_definition in account_migrations.items():
+            if column_name not in account_columns:
+                connection.execute(
+                    text(f"ALTER TABLE bluesky_accounts ADD COLUMN {column_name} {column_definition}")
+                )
+        audit_columns = {column["name"] for column in inspect(engine).get_columns("audit_events")}
+        audit_migrations = {
+            "account_owner_user_id": "INTEGER",
+            "category": "VARCHAR(40) DEFAULT '' NOT NULL",
+            "http_status": "INTEGER",
+            "retry_after": "VARCHAR(100) DEFAULT '' NOT NULL",
+        }
+        for column_name, column_definition in audit_migrations.items():
+            if column_name not in audit_columns:
+                connection.execute(
+                    text(f"ALTER TABLE audit_events ADD COLUMN {column_name} {column_definition}")
+                )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_audit_events_account_owner_user_id "
+                "ON audit_events (account_owner_user_id)"
+            )
+        )
     if settings.database_url.startswith("sqlite"):
         with engine.begin() as connection:
             columns = {column["name"] for column in inspect(engine).get_columns("target_users")}

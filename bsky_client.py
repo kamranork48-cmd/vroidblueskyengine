@@ -107,20 +107,29 @@ class BlueSkyClient:
             **({"cursor": cursor} if cursor else {}),
         })
 
-    def list_notifications(self, limit: int = 100, cursor: str | None = None) -> Any:
-        self._require_login()
-        return self.client.app.bsky.notification.list_notifications({
-            "limit": min(max(limit, 1), 100),
-            **({"cursor": cursor} if cursor else {}),
-        })
-
-    def mark_notifications_seen(self, seen_at: str) -> None:
-        self._require_login()
-        self.client.app.bsky.notification.update_seen({"seenAt": seen_at})
-
     def _chat_client(self) -> Any:
         self._require_login()
         return self.client.with_bsky_chat_proxy()
+
+    def _notification_client(self) -> Any:
+        self._require_login()
+        return self.client.app.bsky.notification
+
+    def list_notifications(
+        self,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> models.AppBskyNotificationListNotifications.Response:
+        params = models.AppBskyNotificationListNotifications.Params(
+            limit=min(max(limit, 1), 100),
+            cursor=cursor,
+        )
+        return self._notification_client().list_notifications(params)
+
+    def mark_notifications_seen(self, seen_at: str) -> None:
+        data = models.AppBskyNotificationUpdateSeen.Data(seen_at=seen_at)
+        if not self._notification_client().update_seen(data):
+            raise RuntimeError("Bluesky could not mark notifications as seen")
 
     def chat_list_conversations(self, limit: int = 50, cursor: str | None = None) -> ChatResult:
         params = models.ChatBskyConvoListConvos.Params(
@@ -134,7 +143,7 @@ class BlueSkyClient:
 
     def chat_get_messages(self, conversation_id: str, limit: int = 100, cursor: str | None = None) -> ChatResult:
         params = models.ChatBskyConvoGetMessages.Params(
-            convoId=conversation_id,
+            convo_id=conversation_id,
             limit=min(max(limit, 1), 100),
             cursor=cursor,
         )
@@ -144,23 +153,30 @@ class BlueSkyClient:
         return ChatResult(response.content)
 
     def chat_send_message(self, conversation_id: str, text: str) -> ChatResult:
+        data = models.ChatBskyConvoSendMessage.Data(
+            convo_id=conversation_id,
+            message=models.ChatBskyConvoDefs.MessageInput(text=text),
+        )
         response = self._chat_client().invoke_procedure(
             "chat.bsky.convo.sendMessage",
-            data=models.ChatBskyConvoSendMessage.Data(
-                convoId=conversation_id,
-                message=models.ChatBskyConvoDefs.MessageInput(text=text),
-            ),
+            data=data,
             input_encoding="application/json",
+            output_encoding="application/json",
         )
         if not isinstance(response.content, dict):
             raise RuntimeError("Bluesky returned an invalid sent-message response")
         return ChatResult(response.content)
 
     def chat_mark_read(self, conversation_id: str, message_id: str) -> None:
+        data = models.ChatBskyConvoUpdateRead.Data(
+            convo_id=conversation_id,
+            message_id=message_id,
+        )
         response = self._chat_client().invoke_procedure(
             "chat.bsky.convo.updateRead",
-            data=models.ChatBskyConvoUpdateRead.Data(convoId=conversation_id, messageId=message_id),
+            data=data,
             input_encoding="application/json",
+            output_encoding="application/json",
         )
         if not response.success:
             raise RuntimeError("Bluesky could not mark the conversation as read")

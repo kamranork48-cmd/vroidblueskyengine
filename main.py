@@ -5,9 +5,11 @@ import io
 import logging
 import secrets
 import time
+from email.utils import parsedate_to_datetime
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -22,6 +24,7 @@ from bsky_client import BlueSkyClient
 from config import get_settings
 from database import (
     AccountSettings,
+    AuditEvent,
     BlueskyAccount,
     ChatConversation,
     ChatMessage,
@@ -42,6 +45,13 @@ from database import (
     AccountNotification,
     remove_account,
 )
+from safety import (
+    classify_bluesky_error,
+    get_global_control,
+    is_global_emergency_stop_active,
+    record_audit_event,
+    set_global_emergency_stop,
+)
 from worker_manager import WorkerManager
 
 settings = get_settings()
@@ -60,7 +70,8 @@ engine, session_factory = create_database(settings)
 logs: dict[int, list[dict[str, str]]] = defaultdict(list)
 inbox_sync_tasks: dict[int, asyncio.Task] = {}
 inbox_sync_errors: dict[int, str] = {}
-inbox_sync_cooldown_until: dict[int, float] = {}
+notification_sync_errors: dict[int, str] = {}
+notification_sync_last_started: dict[int, float] = {}
 chat_clients: dict[int, BlueSkyClient] = {}
 followback_task: asyncio.Task | None = None
 account_notification_tasks: dict[int, asyncio.Task] = {}
@@ -166,6 +177,10 @@ class PostImport(BaseModel):
     post_url: str = Field(min_length=1, max_length=500)
 
 
+class AccountSuspensionReview(BaseModel):
+    review_note: str = Field(min_length=10, max_length=500)
+
+
 class ChatMessageCreate(BaseModel):
     text: str = Field(min_length=1, max_length=10000)
 
@@ -175,6 +190,9 @@ def _chat_client_for_account(account_id: int) -> tuple[BlueskyAccount, BlueSkyCl
         account = get_account(session, account_id)
         if account is None:
             raise HTTPException(404, "Account not found")
+        block_reason = _inbox_sync_block_reason(account)
+        if block_reason is not None:
+            raise HTTPException(423, block_reason)
         client = chat_clients.get(account_id)
         if client is None:
             try:
@@ -186,12 +204,116 @@ def _chat_client_for_account(account_id: int) -> tuple[BlueskyAccount, BlueSkyCl
     return account, client
 
 
+def _aware_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def _inbox_sync_block_reason(account: BlueskyAccount, now: datetime | None = None) -> str | None:
+    status = account.chat_sync_status or "ok"
+    if account.status == "suspended" or status == "suspended":
+        return account.chat_sync_error or account.last_error or "Inbox sync is paused pending account review."
+    if status in {"authentication", "restricted"}:
+        return account.chat_sync_error or "Inbox sync is paused; reconnect or review this account before retrying."
+    if status in {"rate_limited", "transient"}:
+        retry_at = account.chat_sync_retry_at
+        if retry_at is None:
+            return account.chat_sync_error or "Inbox sync is paused until this account can be reviewed."
+        current_time = now or datetime.now(timezone.utc)
+        if _aware_utc(retry_at) > current_time:
+            return account.chat_sync_error or f"Inbox sync can retry after {_aware_utc(retry_at).isoformat()}."
+    return None
+
+
+def _retry_at_from_error(error_info) -> datetime | None:
+    now = datetime.now(timezone.utc)
+    if error_info.retry_after:
+        try:
+            return now + timedelta(seconds=max(float(error_info.retry_after), 0))
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(error_info.retry_after)
+                return _aware_utc(retry_at)
+            except (TypeError, ValueError, OverflowError):
+                pass
+    if error_info.rate_limit_reset:
+        try:
+            return datetime.fromtimestamp(float(error_info.rate_limit_reset), timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            try:
+                return _aware_utc(parsedate_to_datetime(error_info.rate_limit_reset))
+            except (TypeError, ValueError, OverflowError):
+                pass
+    return None
+
+
+def _record_inbox_sync_failure(account_id: int, error: Exception, operation: str = "inbox") -> str:
+    error_info = classify_bluesky_error(error)
+    retry_at = _retry_at_from_error(error_info)
+    if error_info.category == "suspended":
+        status = "suspended"
+        message = f"Bluesky reports this account as taken down. {operation.capitalize()} sync is blocked pending administrator review."
+    elif error_info.category == "rate_limited":
+        status = "rate_limited"
+        if retry_at is not None:
+            message = f"Bluesky rate-limited {operation} sync. It will retry after {retry_at.isoformat()}."
+        else:
+            message = f"Bluesky rate-limited {operation} sync; automatic retries are paused because no retry window was provided."
+    elif error_info.category == "authentication":
+        status = "authentication"
+        message = f"Bluesky rejected this account's credentials. Reconnect the account to restore {operation} sync."
+    elif error_info.category == "restricted":
+        status = "restricted"
+        message = f"Bluesky denied {operation} access. Review the account status before retrying."
+    else:
+        status = "transient"
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+        message = f"{operation.capitalize()} sync failed: {error_info.message[:350]}"
+
+    account_handle = ""
+    with session_factory() as session:
+        account = get_account(session, account_id)
+        if account is not None:
+            account_handle = account.handle
+            account.chat_sync_status = status
+            account.chat_sync_error = message[:500]
+            account.chat_sync_retry_at = retry_at
+            if status == "suspended":
+                account.status = "suspended"
+                account.last_error = message[:500]
+            session.commit()
+
+    if status in {"suspended", "authentication"}:
+        chat_clients.pop(account_id, None)
+    if status == "suspended":
+        set_global_emergency_stop(
+            session_factory,
+            True,
+            f"Bluesky reported a takedown for @{account_handle or account_id}; automation is stopped pending review.",
+            account_id=account_id,
+            account_handle=account_handle,
+            category=error_info.category,
+            code=error_info.code,
+            http_status=error_info.status_code,
+            retry_after=error_info.retry_after,
+        )
+    record_audit_event(
+        session_factory,
+        "api_error",
+        message,
+        account_id=account_id,
+        account_handle=account_handle,
+        severity="critical" if status == "suspended" else "warning",
+        category=error_info.category,
+        code=error_info.code,
+        http_status=error_info.status_code,
+        retry_after=error_info.retry_after,
+    )
+    inbox_sync_errors[account_id] = message
+    return message
+
+
 def _check_account_followbacks(account_id: int) -> None:
     account, client = _chat_client_for_account(account_id)
-    client._require_login()
-    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or account.did or "")
-    if not account_did:
-        return
     with session_factory() as session:
         followed = {
             target.did: target
@@ -203,6 +325,12 @@ def _check_account_followbacks(account_id: int) -> None:
             )
         }
     if not followed:
+        return
+    if _inbox_sync_block_reason(account) is not None:
+        return
+    client._require_login()
+    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or account.did or "")
+    if not account_did:
         return
     cursor = None
     followers: dict[str, Any] = {}
@@ -249,6 +377,8 @@ def _notification_value(item: object, key: str, default: object = "") -> object:
 
 def _sync_account_notifications(account_id: int) -> None:
     account, client = _chat_client_for_account(account_id)
+    if _inbox_sync_block_reason(account) is not None:
+        return
     cursor = None
     with session_factory() as session:
         for _ in range(3):
@@ -263,6 +393,7 @@ def _sync_account_notifications(account_id: int) -> None:
                 indexed_at = _parse_chat_timestamp(_notification_value(item, "indexed_at") or _notification_value(item, "indexedAt"))
                 if indexed_at is None:
                     indexed_at = datetime.now(timezone.utc)
+                is_read = bool(_notification_value(item, "is_read") or _notification_value(item, "isRead"))
                 if session.scalar(
                     select(AccountNotification).where(
                         AccountNotification.account_id == account_id,
@@ -299,12 +430,14 @@ def _sync_account_notifications(account_id: int) -> None:
                         subject_uri=str(_notification_value(item, "uri", "") or ""),
                         message=f"@{actor['handle'] or 'Someone'} {reason_label}",
                         created_at=indexed_at,
+                        read_at=indexed_at if is_read else None,
                     )
                 )
             session.commit()
             cursor = getattr(response, "cursor", None)
             if not cursor:
                 break
+    notification_sync_errors.pop(account_id, None)
 
 
 async def _followback_poll_loop() -> None:
@@ -314,34 +447,68 @@ async def _followback_poll_loop() -> None:
         for account_id in account_ids:
             try:
                 await asyncio.to_thread(_check_account_followbacks, account_id)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Follow-back notification check failed for account %s", account_id)
-            try:
-                await asyncio.to_thread(_sync_account_notifications, account_id)
-            except Exception:
-                logger.exception("Bluesky notification check failed for account %s", account_id)
+                if not (isinstance(exc, HTTPException) and exc.status_code == 423):
+                    _record_inbox_sync_failure(account_id, exc)
+        _schedule_account_notification_sync(account_ids)
         await asyncio.sleep(60)
 
 
 async def _sync_account_notifications_in_background(account_id: int) -> None:
     try:
         await asyncio.to_thread(_sync_account_notifications, account_id)
-    except Exception:
+    except HTTPException as exc:
+        if exc.status_code == 423:
+            notification_sync_errors[account_id] = str(exc.detail)
+        else:
+            logger.exception("Bluesky notification check failed for account %s", account_id)
+            notification_sync_errors[account_id] = _record_inbox_sync_failure(
+                account_id,
+                exc,
+                operation="notifications",
+            )
+    except Exception as exc:
         logger.exception("Bluesky notification check failed for account %s", account_id)
+        notification_sync_errors[account_id] = _record_inbox_sync_failure(
+            account_id,
+            exc,
+            operation="notifications",
+        )
     finally:
         account_notification_tasks.pop(account_id, None)
 
 
 def _schedule_account_notification_sync(account_ids: list[int]) -> list[int]:
-    scheduled: list[int] = []
+    syncing: list[int] = []
+    with session_factory() as session:
+        accounts = {
+            account.id: account
+            for account in session.scalars(
+                select(BlueskyAccount).where(BlueskyAccount.id.in_(account_ids))
+            )
+        } if account_ids else {}
     for account_id in account_ids:
+        account = accounts.get(account_id)
+        if account is None:
+            continue
+        block_reason = _inbox_sync_block_reason(account)
+        if block_reason is not None:
+            notification_sync_errors[account_id] = block_reason
+            continue
+        notification_sync_errors.pop(account_id, None)
         task = account_notification_tasks.get(account_id)
         if task is None or task.done():
+            if time.monotonic() - notification_sync_last_started.get(account_id, 0) < 30:
+                continue
+            notification_sync_last_started[account_id] = time.monotonic()
             account_notification_tasks[account_id] = asyncio.create_task(
                 _sync_account_notifications_in_background(account_id)
             )
-            scheduled.append(account_id)
-    return scheduled
+            task = account_notification_tasks[account_id]
+        if not task.done():
+            syncing.append(account_id)
+    return syncing
 
 
 def _parse_chat_timestamp(value: object) -> datetime | None:
@@ -422,17 +589,11 @@ def _store_chat_message(session, account_id: int, conversation_id: str, payload:
 
 
 def _sync_account_conversations(account_id: int) -> None:
-    if time.monotonic() < inbox_sync_cooldown_until.get(account_id, 0):
-        return
     account, client = _chat_client_for_account(account_id)
-    try:
-        client._require_login()
-    except Exception as exc:
-        chat_clients.pop(account_id, None)
-        if "429" in str(exc):
-            inbox_sync_cooldown_until[account_id] = time.monotonic() + 60
-        logger.exception("Inbox authentication failed for account %s", account_id)
-        raise HTTPException(502, "Could not authenticate the selected Bluesky account for chat") from exc
+    block_reason = _inbox_sync_block_reason(account)
+    if block_reason is not None:
+        raise HTTPException(423, block_reason)
+    client._require_login()
     account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
     cursor = None
     with session_factory() as session:
@@ -446,25 +607,60 @@ def _sync_account_conversations(account_id: int) -> None:
             cursor = result.content.get("cursor")
             if not cursor or not conversations:
                 break
+        stored_account = get_account(session, account_id)
+        if stored_account is not None:
+            stored_account.chat_sync_status = "ok"
+            stored_account.chat_sync_error = None
+            stored_account.chat_sync_retry_at = None
+            session.commit()
 
 
 async def _sync_account_in_background(account_id: int) -> None:
     try:
         await asyncio.to_thread(_sync_account_conversations, account_id)
         inbox_sync_errors.pop(account_id, None)
-    except Exception as exc:
-        message = "Could not synchronize this account's inbox"
-        if "429" in str(exc):
-            inbox_sync_cooldown_until[account_id] = time.monotonic() + 60
+    except HTTPException as exc:
         logger.exception("Inbox synchronization failed for account %s", account_id)
-        inbox_sync_errors[account_id] = message
+        if exc.status_code == 423:
+            inbox_sync_errors[account_id] = str(exc.detail)
+        else:
+            _record_inbox_sync_failure(account_id, exc)
+    except Exception as exc:
+        logger.exception("Inbox synchronization failed for account %s", account_id)
+        _record_inbox_sync_failure(account_id, exc)
     finally:
         inbox_sync_tasks.pop(account_id, None)
 
 
 def _schedule_inbox_sync(account_ids: list[int]) -> list[int]:
     scheduled: list[int] = []
+    now = datetime.now(timezone.utc)
+    with session_factory() as session:
+        accounts = {
+            account.id: account
+            for account in session.scalars(
+                select(BlueskyAccount).where(BlueskyAccount.id.in_(account_ids))
+            )
+        } if account_ids else {}
+        blocked: dict[int, str] = {}
+        changed = False
+        for account_id, account in accounts.items():
+            block_reason = _inbox_sync_block_reason(account, now)
+            if block_reason is not None:
+                blocked[account_id] = block_reason
+                continue
+            if account.chat_sync_status != "ok" or account.chat_sync_error or account.chat_sync_retry_at:
+                account.chat_sync_status = "ok"
+                account.chat_sync_error = None
+                account.chat_sync_retry_at = None
+                changed = True
+        if changed:
+            session.commit()
     for account_id in account_ids:
+        if account_id in blocked:
+            inbox_sync_errors[account_id] = blocked[account_id]
+            continue
+        inbox_sync_errors.pop(account_id, None)
         task = inbox_sync_tasks.get(account_id)
         if task is None or task.done():
             inbox_sync_tasks[account_id] = asyncio.create_task(_sync_account_in_background(account_id))
@@ -778,7 +974,11 @@ async def inbox(request: Request, account_id: int | None = None, search: str = "
             ],
             "syncing_account_ids": scheduled_accounts,
             "errors": [
-                {"account_id": current_account_id, "error": inbox_sync_errors[current_account_id]}
+                {
+                    "account_id": current_account_id,
+                    "account_handle": account_handles.get(current_account_id, ""),
+                    "error": inbox_sync_errors[current_account_id],
+                }
                 for current_account_id in account_ids
                 if current_account_id in inbox_sync_errors
             ],
@@ -883,6 +1083,15 @@ async def notifications(request: Request):
             ),
             "syncing_account_ids": scheduled_accounts,
             "syncing_notification_account_ids": scheduled_notification_accounts,
+            "notification_errors": [
+                {
+                    "account_id": current_account_id,
+                    "account_handle": account_handles.get(current_account_id, ""),
+                    "error": notification_sync_errors[current_account_id],
+                }
+                for current_account_id in account_ids
+                if current_account_id in notification_sync_errors
+            ],
         }
 
 
@@ -967,13 +1176,12 @@ async def inbox_messages(
     require_user(request)
     require_account(request, account_id)
     account, client = _chat_client_for_account(account_id)
+    block_reason = _inbox_sync_block_reason(account)
+    if block_reason is not None:
+        raise HTTPException(423, block_reason)
     try:
         client._require_login()
-    except Exception as exc:
-        logger.exception("Inbox authentication failed for account %s", account_id)
-        raise HTTPException(502, "Could not authenticate the selected Bluesky account for chat") from exc
-    account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
-    try:
+        account_did = str(getattr(getattr(client.client, "me", None), "did", "") or "")
         result = await asyncio.to_thread(
             client.chat_get_messages,
             conversation_id,
@@ -982,7 +1190,8 @@ async def inbox_messages(
         )
     except Exception as exc:
         logger.exception("Could not load inbox messages for account %s", account_id)
-        raise HTTPException(502, "Could not load this Bluesky conversation") from exc
+        message = _record_inbox_sync_failure(account_id, exc)
+        raise HTTPException(502, message) from exc
     messages = result.content.get("messages", [])
     with session_factory() as session:
         conversation = session.scalar(
@@ -1124,6 +1333,40 @@ async def accounts(request: Request):
         ]
 
 
+@app.get("/api/system/control")
+async def system_control_status(request: Request):
+    user = require_user(request)
+    control = get_global_control(session_factory)
+    control["can_clear"] = effective_role(user) == "admin"
+    return control
+
+
+@app.post("/api/system/emergency-stop")
+async def activate_emergency_stop(request: Request):
+    user = require_editor(request)
+    state = set_global_emergency_stop(
+        session_factory,
+        True,
+        f"Activated by {user.username}",
+        actor_user_id=user.id,
+        code="manual_emergency_stop",
+    )
+    await worker_manager.stop_all()
+    return state
+
+
+@app.post("/api/system/emergency-stop/clear")
+async def clear_emergency_stop(request: Request):
+    user = require_admin(request)
+    return set_global_emergency_stop(
+        session_factory,
+        False,
+        "",
+        actor_user_id=user.id,
+        code="manual_emergency_stop_clear",
+    )
+
+
 @app.post("/api/accounts")
 async def add_account(request: Request, payload: AccountCreate):
     user = require_editor(request)
@@ -1223,8 +1466,9 @@ async def delete_account(request: Request, account_id: int):
     worker_manager.workers.pop(account_id, None)
     logs.pop(account_id, None)
     chat_clients.pop(account_id, None)
-    inbox_sync_cooldown_until.pop(account_id, None)
     inbox_sync_errors.pop(account_id, None)
+    notification_sync_errors.pop(account_id, None)
+    notification_sync_last_started.pop(account_id, None)
     with session_factory() as session:
         if not remove_account(session, account_id):
             raise HTTPException(404, "Account not found")
@@ -1233,6 +1477,7 @@ async def delete_account(request: Request, account_id: int):
 
 @app.get("/api/accounts/{account_id}/status")
 async def account_status(request: Request, account_id: int):
+    user = require_user(request)
     account = require_account(request, account_id)
     with session_factory() as session:
         account_settings = get_account_settings(session, account_id)
@@ -1244,6 +1489,7 @@ async def account_status(request: Request, account_id: int):
             "handle": account.handle,
             "status": worker.status if worker else account.status,
             "last_error": worker.last_error if worker else account.last_error,
+            "can_review_suspension": effective_role(user) == "admin",
             "dry_run": account_settings.dry_run,
             "target_counts": target_counts(session, account_id),
             "follows_today": count_follows_today(session, account_id),
@@ -1253,6 +1499,27 @@ async def account_status(request: Request, account_id: int):
             "follow_delay_min_seconds": account_settings.follow_delay_min_seconds,
             "follow_delay_max_seconds": account_settings.follow_delay_max_seconds,
             "logs": logs[account_id],
+            "audit_events": [
+                {
+                    "created_at": event.created_at.isoformat(),
+                    "event_type": event.event_type,
+                    "severity": event.severity,
+                    "category": event.category,
+                    "code": event.code,
+                    "http_status": event.http_status,
+                    "retry_after": event.retry_after,
+                    "message": event.message,
+                }
+                for event in session.scalars(
+                    select(AuditEvent)
+                    .where(
+                        AuditEvent.account_id == account_id,
+                        AuditEvent.account_owner_user_id == user.id,
+                    )
+                    .order_by(AuditEvent.created_at.desc())
+                    .limit(50)
+                )
+            ],
             "targets": [
                 {
                     "handle": item.handle,
@@ -1291,34 +1558,119 @@ def account_worker(request: Request, account_id: int):
 
 @app.post("/api/accounts/{account_id}/start")
 async def start_account(request: Request, account_id: int):
-    require_editor(request)
+    user = require_editor(request)
+    if is_global_emergency_stop_active(session_factory):
+        raise HTTPException(423, "Global emergency stop is active; an administrator must review and clear it")
+    account = require_account(request, account_id)
+    if account.status == "suspended":
+        raise HTTPException(
+            423,
+            "This account was reported as taken down and cannot be restarted; review the account with Bluesky first",
+        )
     worker = account_worker(request, account_id)
-    await worker.start()
+    started = await worker.start()
+    if started:
+        record_audit_event(
+            session_factory,
+            "worker_started",
+            "Worker started by team member",
+            account_id=worker.account_id,
+            account_handle=worker.client.handle,
+            actor_user_id=user.id,
+        )
     return {"status": worker.status}
 
 
 @app.post("/api/accounts/{account_id}/pause")
 async def pause_account(request: Request, account_id: int):
-    require_editor(request)
+    user = require_editor(request)
     worker = account_worker(request, account_id)
     worker.pause()
+    record_audit_event(
+        session_factory,
+        "worker_paused",
+        "Worker paused by team member",
+        account_id=worker.account_id,
+        account_handle=worker.client.handle,
+        actor_user_id=user.id,
+    )
     return {"status": worker.status}
 
 
 @app.post("/api/accounts/{account_id}/resume")
 async def resume_account(request: Request, account_id: int):
-    require_editor(request)
+    user = require_editor(request)
+    if is_global_emergency_stop_active(session_factory):
+        raise HTTPException(423, "Global emergency stop is active; an administrator must review and clear it")
+    account = require_account(request, account_id)
+    if account.status == "suspended":
+        raise HTTPException(
+            423,
+            "This account was reported as taken down and cannot be resumed; review the account with Bluesky first",
+        )
     worker = account_worker(request, account_id)
     worker.resume()
+    record_audit_event(
+        session_factory,
+        "worker_resumed",
+        "Worker resume requested by team member",
+        account_id=worker.account_id,
+        account_handle=worker.client.handle,
+        actor_user_id=user.id,
+    )
     return {"status": worker.status}
 
 
 @app.post("/api/accounts/{account_id}/stop")
 async def stop_account(request: Request, account_id: int):
-    require_editor(request)
+    user = require_editor(request)
     worker = account_worker(request, account_id)
     await worker.stop()
+    record_audit_event(
+        session_factory,
+        "worker_stopped",
+        "Worker stopped by team member",
+        account_id=worker.account_id,
+        account_handle=worker.client.handle,
+        actor_user_id=user.id,
+    )
     return {"status": worker.status}
+
+
+@app.post("/api/accounts/{account_id}/review-suspension")
+async def review_account_suspension(request: Request, account_id: int, payload: AccountSuspensionReview):
+    user = require_admin(request)
+    account = require_account(request, account_id)
+    if account.status != "suspended":
+        raise HTTPException(409, "Account is not awaiting suspension review")
+    review_note = payload.review_note.strip()
+    if len(review_note) < 10:
+        raise HTTPException(400, "Review note must contain at least 10 non-whitespace characters")
+    worker = worker_manager.get(account_id)
+    if worker is not None:
+        await worker.stop()
+        worker_manager.workers.pop(account_id, None)
+    with session_factory() as session:
+        stored_account = get_account(session, account_id)
+        if stored_account is None:
+            raise HTTPException(404, "Account not found")
+        stored_account.status = "stopped"
+        stored_account.last_error = None
+        stored_account.chat_sync_status = "ok"
+        stored_account.chat_sync_error = None
+        stored_account.chat_sync_retry_at = None
+        session.commit()
+    record_audit_event(
+        session_factory,
+        "suspension_reviewed",
+        review_note,
+        account_id=account_id,
+        account_handle=account.handle,
+        actor_user_id=user.id,
+        severity="warning",
+        code="manual_review",
+    )
+    return {"status": "stopped", "requires_manual_start": True}
 
 
 @app.post("/api/accounts/{account_id}/settings")
@@ -1347,6 +1699,11 @@ async def update_account_settings(request: Request, account_id: int, payload: Ac
 @app.post("/api/accounts/{account_id}/import-likers")
 async def import_likers(request: Request, account_id: int, payload: PostImport):
     require_editor(request)
+    if is_global_emergency_stop_active(session_factory):
+        raise HTTPException(423, "Post import is blocked while the global emergency stop is active")
+    account = require_account(request, account_id)
+    if account.status == "suspended":
+        raise HTTPException(423, "Post import is blocked pending administrator suspension review")
     worker = account_worker(request, account_id)
     was_running = worker.status == "running"
     if was_running:

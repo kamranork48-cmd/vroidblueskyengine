@@ -88,6 +88,24 @@ class ChatClientTests(unittest.TestCase):
         self.assertIsInstance(seen_data, models.AppBskyNotificationUpdateSeen.Data)
         self.assertEqual(seen_data.seen_at, "2026-11-17T18:00:00Z")
 
+    def test_recent_post_text_ignores_reposts(self) -> None:
+        feed = [
+            SimpleNamespace(
+                post=SimpleNamespace(record=SimpleNamespace(text="My original post"))
+            ),
+            SimpleNamespace(
+                reason=SimpleNamespace(),
+                post=SimpleNamespace(record=SimpleNamespace(text="Commission artist repost"))
+            ),
+        ]
+        feed_api = SimpleNamespace(get_author_feed=Mock(return_value=SimpleNamespace(feed=feed)))
+        self.client.logged_in = True
+        self.client.client = SimpleNamespace(app=SimpleNamespace(bsky=SimpleNamespace(feed=feed_api)))
+
+        result = self.client.recent_post_text("example.bsky.social")
+
+        self.assertEqual(result, "My original post")
+
 
 if __name__ == "__main__":
     unittest.main()

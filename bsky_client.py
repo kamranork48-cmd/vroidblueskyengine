@@ -88,6 +88,8 @@ class BlueSkyClient:
         response = self.client.app.bsky.feed.get_author_feed({'actor': actor, 'limit': limit})
         texts: list[str] = []
         for item in getattr(response, "feed", []):
+            if getattr(item, "reason", None) is not None:
+                continue
             record = getattr(getattr(item, "post", None), "record", None)
             text = getattr(record, "text", "") if record else ""
             if text:

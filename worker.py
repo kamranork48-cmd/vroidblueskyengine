@@ -316,13 +316,14 @@ class BotWorker:
         if self.settings.artist_filter_enabled:
             assessment = assess_profile(
                 combined_text,
+                profile_text=text,
                 artist_keywords=tuple(self.settings.artist_keywords),
                 audience_keywords=tuple(self.settings.audience_keywords),
             )
-            if assessment.commission_artist and self.settings.exclude_commission_artists:
+            if assessment.excluded_provider and self.settings.exclude_commission_artists:
                 self.log(
-                    f"Skipped @{profile.handle}: likely commission artist "
-                    f"(artist score {assessment.artist_score}, signals {', '.join(assessment.signals)})"
+                    f"Skipped @{profile.handle}: artist or competing-service signal "
+                    f"(signals {', '.join(assessment.signals)})"
                 )
                 return False
         return self._contains_relevant_term(combined_text)

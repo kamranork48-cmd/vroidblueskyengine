@@ -136,6 +136,18 @@
             <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon pink text-xl">●</div><div><p class="eyebrow">Mode</p><strong id="mode" class="text-lg text-rose-400">—</strong></div></div>
           </section>
 
+          <section id="followed-accounts" class="panel rounded-xl p-4">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♟</span>Followed accounts <span id="followed-account-count" class="rounded-full bg-blue-900/60 px-2 py-0.5 text-xs text-cyan-200">0</span></h2>
+              <div class="flex items-center gap-2">
+                <span id="followed-account-page" class="text-xs muted">Page 1 of 1</span>
+                <button id="followed-accounts-prev" type="button" onclick="changeFollowedAccountsPage(-1)" class="control rounded-lg px-3 py-2 text-xs font-bold" disabled>Previous</button>
+                <button id="followed-accounts-next" type="button" onclick="changeFollowedAccountsPage(1)" class="control rounded-lg px-3 py-2 text-xs font-bold" disabled>Next</button>
+              </div>
+            </div>
+            <div id="followed-account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><p class="text-sm muted">Select a connected account to see the accounts it follows.</p></div>
+          </section>
+
           <section id="accounts" class="panel rounded-xl p-4">
             <div class="mb-3 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♙</span>Connected accounts</h2><button onclick="loadAccounts()" class="text-xs text-cyan-300 hover:text-white">Refresh</button></div>
             <div id="account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"></div>
@@ -197,6 +209,9 @@
     let inboxConversation = null;
     let inboxLoading = false;
     let globalEmergencyActive = false;
+    let followedAccounts = [];
+    let followedAccountsPage = 1;
+    const FOLLOWED_ACCOUNTS_PER_PAGE = 20;
     async function api(path, options = {}) {
       const headers = options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
       const response = await fetch(path, { headers, ...options });
@@ -273,6 +288,48 @@
         button.disabled = !selected || (globalEmergencyActive && action !== 'stop') || (action === 'start' && ['running', 'suspended'].includes(status)) || (action === 'pause' && status !== 'running') || (action === 'stop' && status === 'stopped');
       });
     }
+    function renderFollowedAccounts(emptyMessage) {
+      const list = document.getElementById('followed-account-list');
+      const totalPages = Math.max(1, Math.ceil(followedAccounts.length / FOLLOWED_ACCOUNTS_PER_PAGE));
+      followedAccountsPage = Math.min(followedAccountsPage, totalPages);
+      const pageStart = (followedAccountsPage - 1) * FOLLOWED_ACCOUNTS_PER_PAGE;
+      const pageItems = followedAccounts.slice(pageStart, pageStart + FOLLOWED_ACCOUNTS_PER_PAGE);
+      list.replaceChildren();
+      if (!pageItems.length) {
+        const empty = document.createElement('p');
+        empty.className = 'text-sm muted';
+        empty.textContent = emptyMessage || (selected ? 'This account has not followed anyone yet.' : 'Select a connected account to see the accounts it follows.');
+        list.appendChild(empty);
+      } else {
+        pageItems.forEach(item => {
+          const handle = String(item.handle || '').replace(/^@/, '');
+          const profile = handle || String(item.did || '');
+          if (!profile) return;
+          const link = document.createElement('a');
+          link.href = `https://bsky.app/profile/${encodeURIComponent(profile)}`;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.className = 'flex min-w-0 items-center justify-between gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 px-3 py-2 text-sm text-cyan-100 transition hover:border-cyan-400/50 hover:bg-cyan-400/5';
+          const name = document.createElement('span');
+          name.className = 'truncate font-semibold';
+          name.textContent = `@${handle || profile}`;
+          const open = document.createElement('span');
+          open.className = 'shrink-0 text-xs text-cyan-300';
+          open.textContent = 'Open profile ↗';
+          link.append(name, open);
+          list.appendChild(link);
+        });
+      }
+      document.getElementById('followed-account-count').textContent = String(followedAccounts.length);
+      document.getElementById('followed-account-page').textContent = `Page ${followedAccountsPage} of ${totalPages}`;
+      document.getElementById('followed-accounts-prev').disabled = followedAccountsPage <= 1;
+      document.getElementById('followed-accounts-next').disabled = followedAccountsPage >= totalPages || !followedAccounts.length;
+    }
+    function changeFollowedAccountsPage(direction) {
+      const totalPages = Math.max(1, Math.ceil(followedAccounts.length / FOLLOWED_ACCOUNTS_PER_PAGE));
+      followedAccountsPage = Math.min(Math.max(followedAccountsPage + direction, 1), totalPages);
+      renderFollowedAccounts();
+    }
     async function loadEmergencyControl() {
       const state = await api('/api/system/control');
       globalEmergencyActive = state.active;
@@ -296,6 +353,9 @@
     }
     async function selectAccount(id) {
       selected = id;
+      followedAccounts = [];
+      followedAccountsPage = 1;
+      renderFollowedAccounts('Loading followed accounts...');
       document.getElementById('empty').classList.add('hidden');
       document.getElementById('account-view').classList.remove('hidden');
       document.getElementById('export').href = `/api/accounts/${id}/export.csv`;
@@ -303,6 +363,8 @@
         await refresh();
         await loadAccounts();
       } catch (error) {
+        if (selected !== id) return;
+        renderFollowedAccounts('Could not load followed accounts.');
         document.getElementById('warning').textContent = error.message;
         document.getElementById('warning').classList.remove('hidden');
         showToast(`Could not load this account: ${error.message}`, 'error');
@@ -310,12 +372,16 @@
     }
     async function refresh() {
       if (!selected) return;
-      const data = await api(`/api/accounts/${selected}/status`);
+      const accountId = selected;
+      const data = await api(`/api/accounts/${accountId}/status`);
+      if (selected !== accountId) return;
       document.getElementById('account-handle').textContent = '@' + data.handle;
       document.getElementById('account-status').textContent = data.status;
       document.getElementById('account-status').className = `${statusClass(data.status)} mt-1 inline-flex rounded-full px-3 py-1 text-xs`;
       document.getElementById('status').textContent = data.status;
       document.getElementById('targets-count').textContent = data.target_counts.total;
+      followedAccounts = Array.isArray(data.targets) ? data.targets.filter(item => item.status === 'followed') : [];
+      renderFollowedAccounts();
       document.getElementById('follows').textContent = `${data.follows_today}/${data.max_follows_per_day}`;
       document.getElementById('mode').textContent = data.dry_run ? 'Dry run' : 'Live';
       document.getElementById('warning').textContent = data.last_error || '';
@@ -343,6 +409,9 @@
         await api(`/api/accounts/${id}`, { method: 'DELETE' });
         if (selected === id) {
           selected = null;
+          followedAccounts = [];
+          followedAccountsPage = 1;
+          renderFollowedAccounts();
           document.getElementById('account-view').classList.add('hidden');
           document.getElementById('empty').classList.remove('hidden');
           document.getElementById('account-handle').textContent = '@Select an account';

@@ -116,7 +116,7 @@ class AccountSettings(Base):
     follow_delay_min_seconds: Mapped[int] = mapped_column(Integer, default=60)
     follow_delay_max_seconds: Mapped[int] = mapped_column(Integer, default=180)
     recent_post_limit: Mapped[int] = mapped_column(Integer, default=10)
-    search_keywords: Mapped[str] = mapped_column(String(4000), default="furry art,3d model,2d model,vtuber")
+    search_keywords: Mapped[str] = mapped_column(String(4000), default="")
 
 
 class TargetUser(Base):
@@ -146,6 +146,17 @@ class FollowbackNotification(Base):
     message: Mapped[str] = mapped_column(String(500), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FollowbackAction(Base):
+    __tablename__ = "followback_actions"
+    __table_args__ = (UniqueConstraint("account_id", "did", name="uq_followback_action_account_did"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bluesky_accounts.id"), index=True)
+    did: Mapped[str] = mapped_column(String(255), index=True)
+    followed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    counts_toward_daily_cap: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class AccountNotification(Base):
@@ -241,6 +252,16 @@ def create_database(settings: Settings) -> tuple[Any, sessionmaker[Session]]:
                 connection.execute(
                     text(f"ALTER TABLE audit_events ADD COLUMN {column_name} {column_definition}")
                 )
+        followback_action_columns = {
+            column["name"] for column in inspect(engine).get_columns("followback_actions")
+        }
+        if "counts_toward_daily_cap" not in followback_action_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE followback_actions ADD COLUMN "
+                    "counts_toward_daily_cap BOOLEAN DEFAULT TRUE NOT NULL"
+                )
+            )
         connection.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_audit_events_account_owner_user_id "
@@ -310,6 +331,7 @@ def remove_account(session: Session, account_id: int) -> bool:
     session.query(ChatMessage).filter(ChatMessage.account_id == account_id).delete(synchronize_session=False)
     session.query(ChatConversation).filter(ChatConversation.account_id == account_id).delete(synchronize_session=False)
     session.query(FollowbackNotification).filter(FollowbackNotification.account_id == account_id).delete(synchronize_session=False)
+    session.query(FollowbackAction).filter(FollowbackAction.account_id == account_id).delete(synchronize_session=False)
     session.query(AccountNotification).filter(AccountNotification.account_id == account_id).delete(synchronize_session=False)
     session.delete(account)
     session.commit()
@@ -393,4 +415,21 @@ def count_follows_today(session: Session, account_id: int | None = None) -> int:
     query = select(func.count(TargetUser.id)).where(TargetUser.followed_at_timestamp >= start)
     if account_id is not None:
         query = query.where(TargetUser.account_id == account_id)
-    return int(session.scalar(query) or 0)
+    target_count = int(session.scalar(query) or 0)
+    duplicate_target_today = (
+        select(TargetUser.id)
+        .where(
+            TargetUser.account_id == FollowbackAction.account_id,
+            TargetUser.did == FollowbackAction.did,
+            TargetUser.followed_at_timestamp >= start,
+        )
+        .exists()
+    )
+    followback_query = select(func.count(FollowbackAction.id)).where(
+        FollowbackAction.followed_at >= start,
+        FollowbackAction.counts_toward_daily_cap.is_(True),
+        ~duplicate_target_today,
+    )
+    if account_id is not None:
+        followback_query = followback_query.where(FollowbackAction.account_id == account_id)
+    return target_count + int(session.scalar(followback_query) or 0)

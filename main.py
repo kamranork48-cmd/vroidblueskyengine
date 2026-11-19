@@ -41,6 +41,7 @@ from database import (
     target_counts,
     count_follows_today,
     TargetUser,
+    FollowbackAction,
     FollowbackNotification,
     AccountNotification,
     remove_account,
@@ -179,7 +180,6 @@ class PostImport(BaseModel):
 
 class AccountSuspensionReview(BaseModel):
     review_note: str = Field(min_length=10, max_length=500)
-
 
 class ChatMessageCreate(BaseModel):
     text: str = Field(min_length=1, max_length=10000)
@@ -1020,7 +1020,40 @@ async def notifications(request: Request):
                 .limit(100)
             )
         )
+        follower_notifications = list(
+            session.scalars(
+                select(AccountNotification)
+                .where(
+                    AccountNotification.account_id.in_(account_ids),
+                    AccountNotification.reason == "follow",
+                )
+                .order_by(AccountNotification.created_at.desc())
+                .limit(50)
+            )
+        )
+        completed_followbacks = {
+            (action.account_id, action.did)
+            for action in session.scalars(
+                select(FollowbackAction).where(FollowbackAction.account_id.in_(account_ids))
+            )
+        }
         account_handles = {account.id: account.handle for account in list_accounts_for_user(session, user.id)}
+        recent_followbacks = []
+        seen_followbacks: set[tuple[int, str]] = set()
+        for item in follower_notifications:
+            if not item.actor_did or (item.account_id, item.actor_did) in seen_followbacks:
+                continue
+            seen_followbacks.add((item.account_id, item.actor_did))
+            recent_followbacks.append({
+                "account_id": item.account_id,
+                "account_handle": account_handles.get(item.account_id, ""),
+                "did": item.actor_did,
+                "handle": item.actor_handle,
+                "display_name": item.actor_display_name,
+                "avatar": item.actor_avatar,
+                "created_at": item.created_at.isoformat(),
+                "followed_back": (item.account_id, item.actor_did) in completed_followbacks,
+            })
         followback_items = [
             {
                 "id": f"followback-{item.id}",
@@ -1076,6 +1109,7 @@ async def notifications(request: Request):
         )
         return {
             "notifications": items,
+            "followbacks": recent_followbacks,
             "unread_count": sum(
                 item.get("unread_count", 1) if item["type"] == "message" else 1
                 for item in items
@@ -1093,6 +1127,71 @@ async def notifications(request: Request):
                 if current_account_id in notification_sync_errors
             ],
         }
+
+
+@app.post("/api/accounts/{account_id}/followbacks/{member_did}")
+async def followback_follower(request: Request, account_id: int, member_did: str):
+    user = require_editor(request)
+    require_account(request, account_id)
+    if is_global_emergency_stop_active(session_factory):
+        raise HTTPException(423, "Global emergency stop is active; an administrator must review and clear it")
+    if not member_did.startswith("did:") or len(member_did) > 255:
+        raise HTTPException(400, "A valid Bluesky DID is required")
+    with session_factory() as session:
+        is_follower = session.scalar(
+            select(AccountNotification.id).where(
+                AccountNotification.account_id == account_id,
+                AccountNotification.actor_did == member_did,
+                AccountNotification.reason == "follow",
+            )
+        )
+        if is_follower is None:
+            raise HTTPException(404, "This account has not recently followed you")
+        existing_action = session.scalar(
+            select(FollowbackAction).where(
+                FollowbackAction.account_id == account_id,
+                FollowbackAction.did == member_did,
+            )
+        )
+        if existing_action is not None:
+            return {"followed": True, "already_following": True}
+    account, client = _chat_client_for_account(account_id)
+    try:
+        profile = await asyncio.to_thread(client.get_profile, member_did)
+    except Exception as exc:
+        logger.exception("Could not check follow state for DID %s on account %s", member_did, account_id)
+        raise HTTPException(502, "Bluesky could not verify this account's follow state") from exc
+    if not profile.viewer_following:
+        with session_factory() as session:
+            account_settings = get_account_settings(session, account_id)
+            if account_settings is None:
+                raise HTTPException(503, "This account's daily follow limit is unavailable")
+            if count_follows_today(session, account_id) >= account_settings.max_follows_per_day:
+                raise HTTPException(429, "Configured daily follow cap reached; try again after it resets")
+        try:
+            await asyncio.to_thread(client.follow, member_did)
+        except Exception as exc:
+            logger.exception("Could not follow back DID %s for account %s", member_did, account_id)
+            raise HTTPException(502, "Bluesky could not follow this account") from exc
+    with session_factory() as session:
+        session.add(
+            FollowbackAction(
+                account_id=account_id,
+                did=member_did,
+                counts_toward_daily_cap=not profile.viewer_following,
+            )
+        )
+        session.commit()
+    if not profile.viewer_following:
+        record_audit_event(
+            session_factory,
+            "follower_followed_back",
+            "Followed back a recent follower",
+            account_id=account_id,
+            account_handle=account.handle,
+            actor_user_id=user.id,
+        )
+    return {"followed": True, "already_following": profile.viewer_following}
 
 
 @app.post("/api/inbox/{account_id}/start/{member_did}")
@@ -1322,15 +1421,58 @@ async def mark_inbox_read(request: Request, account_id: int, conversation_id: st
 async def accounts(request: Request):
     user = require_user(request)
     with session_factory() as session:
-        return [
-            {
+        response = []
+        for account in list_accounts_for_user(session, user.id):
+            worker = worker_manager.get(account.id)
+            worker_status = worker.status if worker else account.status
+            follows_today = count_follows_today(session, account.id)
+            account_settings = get_account_settings(session, account.id)
+            daily_cap = account_settings.max_follows_per_day if account_settings else None
+            account_targets = target_counts(session, account.id)
+            health_state, health_message = _account_health_signal(
+                account,
+                worker_status,
+                worker.last_error if worker else None,
+                follows_today,
+                daily_cap,
+            )
+            response.append({
                 "id": account.id,
                 "handle": account.handle,
-                "status": worker_manager.get(account.id).status if worker_manager.get(account.id) else account.status,
+                "status": worker_status,
                 "last_error": account.last_error,
-            }
-            for account in list_accounts_for_user(session, user.id)
-        ]
+                "follows_today": follows_today,
+                "daily_follow_cap": daily_cap,
+                "daily_follow_percent": min(100, round(follows_today / daily_cap * 100)) if daily_cap else 0,
+                "dry_run": account_settings.dry_run if account_settings else None,
+                "target_counts": account_targets,
+                "health_state": health_state,
+                "health_message": health_message,
+            })
+        return response
+
+
+def _account_health_signal(
+    account: BlueskyAccount,
+    worker_status: str,
+    worker_error: str | None,
+    follows_today: int,
+    daily_cap: int | None,
+) -> tuple[str, str]:
+    chat_status = account.chat_sync_status or "ok"
+    if account.status == "suspended" or worker_status == "suspended" or chat_status == "suspended":
+        return "critical", "Suspension detected — stop activity and review the account with Bluesky."
+    if chat_status in {"rate_limited", "restricted", "authentication", "transient"}:
+        return "review", account.chat_sync_error or "API restriction or connection signal detected; review before resuming."
+    if worker_status in {"error", "restricted", "rate_limited"} or worker_error or account.last_error:
+        return "review", worker_error or account.last_error or "Worker error detected; review before resuming."
+    if daily_cap is None:
+        return "review", "Daily follow limit is unavailable; check this account's settings."
+    if daily_cap > 0 and follows_today >= daily_cap:
+        return "watch", "Configured daily follow cap reached."
+    if daily_cap > 0 and follows_today / daily_cap >= .8:
+        return "watch", "Approaching the configured daily follow cap."
+    return "healthy", "No current account health alerts."
 
 
 @app.get("/api/system/control")
@@ -1388,7 +1530,7 @@ async def add_account(request: Request, payload: AccountCreate):
                 follow_delay_min_seconds=60,
                 follow_delay_max_seconds=180,
                 recent_post_limit=settings.recent_post_limit,
-                search_keywords=",".join(settings.search_keywords),
+                search_keywords="",
             )
         )
         if len(list_accounts(session)) == 1:
@@ -1443,7 +1585,7 @@ async def import_accounts_xlsx(request: Request, file: UploadFile = File(...)):
                     follow_delay_min_seconds=60,
                     follow_delay_max_seconds=180,
                     recent_post_limit=settings.recent_post_limit,
-                    search_keywords=",".join(settings.search_keywords),
+                    search_keywords="",
                 ))
                 if not had_accounts:
                     session.query(TargetUser).filter(TargetUser.account_id.is_(None)).update({"account_id": account.id})
@@ -1554,6 +1696,23 @@ def account_worker(request: Request, account_id: int):
             raise HTTPException(503, str(exc)) from exc
         worker = worker_manager.create_worker(account, account_settings, app_password)
     return worker
+
+
+@app.get("/api/accounts/{account_id}/profile")
+async def account_profile(request: Request, account_id: int):
+    account = require_account(request, account_id)
+    try:
+        app_password = decrypt_secret(settings, account.encrypted_app_password)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    client = BlueSkyClient(account.handle, app_password)
+    try:
+        profile = await asyncio.to_thread(client.get_profile, account.handle)
+    except Exception as exc:
+        logger.exception("Could not load profile photo for account %s", account_id)
+        raise HTTPException(502, "Could not load the connected account's profile photo") from exc
+    return {"handle": profile.handle, "avatar": profile.avatar}
 
 
 @app.post("/api/accounts/{account_id}/start")

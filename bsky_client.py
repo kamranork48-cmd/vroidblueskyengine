@@ -15,6 +15,8 @@ class Profile:
     display_name: str
     bio: str
     followers_count: int
+    avatar: str = ""
+    viewer_following: bool = False
 
 
 @dataclass(slots=True)
@@ -81,6 +83,8 @@ class BlueSkyClient:
             display_name=getattr(profile, "display_name", "") or "",
             bio=getattr(profile, "description", "") or "",
             followers_count=int(getattr(profile, "followers_count", 0) or 0),
+            avatar=str(getattr(profile, "avatar", "") or ""),
+            viewer_following=bool(getattr(getattr(profile, "viewer", None), "following", None)),
         )
 
     def recent_post_text(self, actor: str, limit: int = 10) -> str:

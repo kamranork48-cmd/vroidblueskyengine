@@ -107,5 +107,28 @@ class ChatClientTests(unittest.TestCase):
         self.assertEqual(result, "My original post")
 
 
+class ProfileClientTests(unittest.TestCase):
+    def test_get_profile_returns_avatar_url(self) -> None:
+        client = BlueSkyClient("example.bsky.social", "app-password")
+        client.logged_in = True
+        response = SimpleNamespace(
+            handle="example.bsky.social",
+            did="did:plc:example",
+            display_name="Example",
+            description="",
+            followers_count=12,
+            avatar="https://cdn.bsky.app/img/avatar/example",
+            viewer=SimpleNamespace(following="at://did:plc:me/app.bsky.graph.follow/record"),
+        )
+        actor_api = SimpleNamespace(get_profile=Mock(return_value=response))
+        client.client = SimpleNamespace(app=SimpleNamespace(bsky=SimpleNamespace(actor=actor_api)))
+
+        profile = client.get_profile("example.bsky.social")
+
+        self.assertEqual(profile.avatar, response.avatar)
+        self.assertTrue(profile.viewer_following)
+        actor_api.get_profile.assert_called_once_with({"actor": "example.bsky.social"})
+
+
 if __name__ == "__main__":
     unittest.main()

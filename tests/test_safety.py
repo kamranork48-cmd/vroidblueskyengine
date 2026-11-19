@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +11,16 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from config import Settings
-from database import AuditEvent, Base, BlueskyAccount, User, create_database
+from database import (
+    AuditEvent,
+    Base,
+    BlueskyAccount,
+    FollowbackAction,
+    TargetUser,
+    User,
+    count_follows_today,
+    create_database,
+)
 from safety import (
     classify_bluesky_error,
     get_global_control,
@@ -82,6 +92,54 @@ class SafetyTests(unittest.TestCase):
             self.assertIsNotNone(event)
             self.assertEqual(event.actor_user_id, 7)
             self.assertEqual(event.event_type, "emergency_stop_activated")
+
+    def test_daily_follow_count_includes_new_followbacks_once(self) -> None:
+        now = datetime.now(timezone.utc)
+        with self.session_factory() as session:
+            user = User(username="follow-test", password_hash="unused")
+            session.add(user)
+            session.flush()
+            account = BlueskyAccount(
+                handle="follow-test.bsky.social",
+                encrypted_app_password="unused",
+                created_by_user_id=user.id,
+            )
+            session.add(account)
+            session.flush()
+            session.add(
+                TargetUser(
+                    account_id=account.id,
+                    handle="already-target.bsky.social",
+                    did="did:plc:shared",
+                    followed_at_timestamp=now,
+                    status="followed",
+                )
+            )
+            session.add_all(
+                [
+                    FollowbackAction(
+                        account_id=account.id,
+                        did="did:plc:shared",
+                        followed_at=now,
+                        counts_toward_daily_cap=True,
+                    ),
+                    FollowbackAction(
+                        account_id=account.id,
+                        did="did:plc:new-followback",
+                        followed_at=now,
+                        counts_toward_daily_cap=True,
+                    ),
+                    FollowbackAction(
+                        account_id=account.id,
+                        did="did:plc:already-following",
+                        followed_at=now,
+                        counts_toward_daily_cap=False,
+                    ),
+                ]
+            )
+            session.commit()
+
+            self.assertEqual(count_follows_today(session, account.id), 2)
 
     def test_worker_cannot_start_during_emergency_stop(self) -> None:
         set_global_emergency_stop(self.session_factory, True, "Test stop")

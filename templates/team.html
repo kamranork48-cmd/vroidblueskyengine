@@ -3,140 +3,408 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BlueSky Signal Desk</title>
+  <title>VroidStudio Signal Engine</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root {
-      --bg: #020b19;
-      --panel: #04152a;
-      --panel-2: #061c36;
-      --line: rgba(31, 145, 255, .32);
-      --line-soft: rgba(31, 145, 255, .18);
-      --blue: #20c9ff;
-      --blue-2: #188dff;
-      --purple: #7654ff;
-      --text: #e8f4ff;
-      --muted: #7ca1c8;
+      color-scheme: dark;
+      --bg: #070a14;
+      --panel: rgba(13, 19, 37, .96);
+      --panel-2: #111a31;
+      --line: rgba(133, 153, 213, .19);
+      --line-soft: rgba(133, 153, 213, .1);
+      --blue: #42d8f5;
+      --blue-2: #76b8ff;
+      --purple: #8b5cf6;
+      --text: #eef2ff;
+      --muted: #9aa8c8;
     }
     * { box-sizing: border-box; }
     body {
+      position: relative;
+      isolation: isolate;
+      overflow-x: hidden;
       min-height: 100vh;
       margin: 0;
       color: var(--text);
       background:
-        radial-gradient(circle at 75% -20%, rgba(19, 112, 220, .2), transparent 35rem),
-        radial-gradient(circle at 35% 100%, rgba(24, 66, 160, .13), transparent 30rem),
-        var(--bg);
+        radial-gradient(ellipse at 6% 3%, rgba(111, 63, 238, .16), transparent 34rem),
+        radial-gradient(ellipse at 90% 14%, rgba(25, 167, 224, .12), transparent 32rem),
+        linear-gradient(145deg, #070a14, #0b1020 55%, #080b16);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
     }
-    .app-shell { display: grid; min-height: 100vh; grid-template-rows: 72px 1fr 54px; }
-    .topbar, .footer { background: rgba(2, 15, 33, .92); border-color: var(--line-soft); }
-    .topbar { border-bottom: 1px solid var(--line-soft); }
-    .footer { border-top: 1px solid var(--line-soft); }
-    .layout { display: grid; grid-template-columns: 162px minmax(0, 1fr); min-height: 0; }
-    .sidebar { border-right: 1px solid var(--line-soft); background: rgba(1, 13, 28, .82); }
-    .content { min-width: 0; padding: 14px 18px 22px; }
-    .panel { background: linear-gradient(145deg, rgba(5, 28, 54, .82), rgba(2, 15, 32, .94)); border: 1px solid var(--line); box-shadow: 0 0 28px rgba(0, 92, 190, .08); }
-    .panel { border-radius: 14px; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
-    .panel:hover { border-color: rgba(32, 201, 255, .48); box-shadow: 0 0 32px rgba(0, 122, 224, .12); }
-    .glow { box-shadow: 0 0 24px rgba(27, 159, 255, .17); }
-    .brand-mark, .account-mark { display: grid; place-items: center; border: 1px solid var(--line); background: radial-gradient(circle, rgba(32, 201, 255, .3), rgba(15, 53, 105, .45)); }
-    .brand-mark { width: 40px; height: 40px; border-radius: 12px; }
-    .account-mark { width: 60px; height: 60px; border-radius: 12px; }
-    .butterfly { color: var(--blue); filter: drop-shadow(0 0 8px rgba(32, 201, 255, .65)); }
-    .nav-item { color: #84a9d2; border-left: 3px solid transparent; }
-    .nav-item:hover, .nav-item.active { color: #f0f8ff; background: linear-gradient(90deg, rgba(16, 113, 226, .35), transparent); border-left-color: var(--blue); }
-    .nav-icon { width: 22px; height: 22px; }
-    .eyebrow { color: #83b1df; font-size: 11px; }
+    .web3-background { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: radial-gradient(ellipse at 54% 100%, rgba(82, 61, 190, .12), transparent 36rem); animation: backdrop-drift 56s ease-in-out infinite alternate; will-change: transform; }
+    .web3-background::before { position: absolute; inset: 0; background-image: linear-gradient(rgba(130, 156, 218, .022) 1px, transparent 1px), linear-gradient(90deg, rgba(130, 156, 218, .022) 1px, transparent 1px); background-size: 72px 72px; content: ""; mask-image: radial-gradient(ellipse at 50% 38%, #000 8%, transparent 82%); }
+    .web3-background::after { position: absolute; top: -31rem; right: -15rem; width: 58rem; height: 58rem; border: 1px solid rgba(111, 93, 229, .14); border-radius: 50%; background: radial-gradient(circle at 42% 60%, rgba(57, 209, 241, .035), transparent 46%); box-shadow: 0 0 0 72px rgba(91, 73, 198, .025), 0 0 0 160px rgba(73, 120, 214, .016); content: ""; }
+    @keyframes backdrop-drift { from { transform: translate3d(-.25%, .15%, 0); } to { transform: translate3d(.25%, -.25%, 0); } }
+    @media (prefers-reduced-motion: reduce), (max-width: 1120px) {
+      .web3-background { animation: none; will-change: auto; }
+      .signal-dot.running { animation: none; }
+    }
+    .app-shell { position: relative; z-index: 1; display: grid; min-width: 0; min-height: 100vh; grid-template-columns: 188px minmax(0, 1fr); grid-template-rows: 68px minmax(0, 1fr) 42px; }
+    .topbar, .footer { background: #080c18; border-color: var(--line-soft); }
+    .topbar { position: relative; z-index: 20; grid-column: 2; grid-row: 1; border-bottom: 1px solid var(--line-soft); }
+    .footer { grid-column: 2; grid-row: 3; border-top: 1px solid var(--line-soft); }
+    .layout { display: contents; min-width: 0; min-height: 0; }
+    .sidebar { position: sticky; top: 0; grid-column: 1; grid-row: 1 / 4; display: flex; min-width: 0; height: 100vh; flex-direction: column; justify-content: space-between; border-right: 1px solid var(--line-soft); background: #080c18; }
+    .sidebar-brand { min-height: 68px; border-bottom: 1px solid var(--line-soft); }
+    .sidebar-brand-mark { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 12px; }
+    .sidebar-brand-mark svg { width: 23px; height: 23px; }
+    .content { grid-column: 2; grid-row: 2; min-width: 0; padding: 16px clamp(16px, 2.2vw, 30px) 24px; }
+    .panel { background: linear-gradient(145deg, rgba(17, 25, 47, .99), rgba(10, 15, 30, .99)); border: 1px solid var(--line); box-shadow: 0 8px 18px rgba(0, 0, 0, .22), inset 0 1px rgba(214, 226, 255, .035); }
+    .panel { border-radius: 18px; transition: border-color .14s ease; }
+    .panel:hover { border-color: rgba(104, 183, 245, .3); }
+    .command-hero { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .9fr); grid-template-rows: auto minmax(112px, 1fr); gap: 10px 14px; align-items: stretch; }
+    .hero-welcome { grid-column: 1; grid-row: 1; align-self: end; padding: 0 2px; }
+    .hero-welcome h2 { margin-top: 4px; font-size: clamp(20px, 2vw, 27px); font-weight: 750; letter-spacing: -.04em; line-height: 1.15; }
+    .hero-welcome p:last-child { margin-top: 4px; color: #a7b3d1; font-size: 11px; }
+    .hero-brand-card { position: relative; grid-column: 1; grid-row: 2; display: flex; min-width: 0; min-height: 116px; align-items: center; overflow: hidden; border: 1px solid rgba(103, 134, 241, .35); border-radius: 16px; background: radial-gradient(ellipse at 80% 48%, rgba(48, 113, 255, .28), transparent 29%), radial-gradient(ellipse at 30% 120%, rgba(130, 53, 223, .34), transparent 38%), linear-gradient(112deg, #121b3b, #101630 62%, #10182d); box-shadow: inset 0 1px rgba(255,255,255,.07), 0 14px 32px rgba(0,0,0,.24); }
+    .hero-brand-copy { position: relative; z-index: 2; display: flex; min-width: 0; align-items: center; gap: 15px; padding: 18px 22px; }
+    .hero-brand-mark { display: grid; width: 54px; height: 54px; flex: 0 0 54px; place-items: center; border: 1px solid rgba(89, 215, 255, .55); border-radius: 17px; background: linear-gradient(145deg, rgba(38, 118, 236, .44), rgba(104, 49, 204, .5)); box-shadow: 0 0 25px rgba(61, 171, 255, .24), inset 0 1px rgba(255,255,255,.16); }
+    .hero-brand-mark svg { width: 34px; height: 34px; color: #fff; filter: drop-shadow(0 0 9px rgba(77, 212, 255, .8)); }
+    .hero-brand-title { font-size: clamp(19px, 2.4vw, 30px); font-weight: 800; letter-spacing: -.045em; line-height: 1.1; text-shadow: 0 2px 22px rgba(84, 150, 255, .28); }
+    .hero-brand-subtitle { margin-top: 7px; color: #b7c8f5; font-size: 11px; letter-spacing: .13em; text-transform: uppercase; }
+    .hero-orbit-art { position: absolute; top: -50%; right: -2%; width: 46%; height: 200%; border: 1px solid rgba(91, 204, 255, .2); border-radius: 50%; background: radial-gradient(ellipse at center, rgba(76, 82, 221, .15), transparent 66%); box-shadow: 0 0 0 22px rgba(105, 99, 231, .06), 0 0 0 48px rgba(75, 182, 245, .045), 0 0 0 82px rgba(101, 81, 215, .035); transform: rotate(-17deg); }
+    .hero-orbit-art::before, .hero-orbit-art::after { position: absolute; inset: 14%; border: 1px solid rgba(103, 145, 251, .18); border-radius: 50%; content: ""; transform: rotate(38deg) scaleX(.55); }
+    .hero-orbit-art::after { inset: 27% -10%; border-color: rgba(57, 214, 242, .24); transform: rotate(-34deg) scaleX(.55); }
+    .engine-panel { grid-column: 2; grid-row: 1 / 3; min-width: 0; padding: 14px; }
+    .engine-panel-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .engine-panel-heading { color: #aab9dc; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .engine-panel-state { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+    .engine-panel-detail { margin-top: 3px; color: #99a8c9; font-size: 10px; line-height: 1.4; }
+    .engine-selected { display: flex; min-width: 0; align-items: center; gap: 9px; margin-top: 12px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+    .engine-selected .account-mark { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 11px; }
+    .engine-selected .account-mark svg { width: 21px; height: 21px; }
+    .engine-selected .account-selected-copy { min-width: 0; flex: 1; }
+    .engine-selected .account-selected-copy .eyebrow { font-size: 9px; }
+    .engine-selected .account-selected-copy h2 { margin-top: 2px; font-size: 12px; }
+    .engine-selected #account-status { margin-top: 3px; padding: 1px 7px; font-size: 9px; }
+    .engine-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+    .engine-controls .control { min-width: 0; padding: 7px 5px; font-size: 10px; }
+    .engine-control-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; }
+    .engine-control-footer .control { padding: 6px 9px; font-size: 10px; }
+    .engine-panel:not(.hidden) { background: radial-gradient(ellipse at 100% 0, rgba(55, 102, 222, .14), transparent 55%), linear-gradient(145deg, rgba(17, 25, 47, .98), rgba(9, 15, 30, .98)); }
+    .command-hero:not(.overview-active) { display: block; }
+    .command-hero:not(.overview-active) .hero-welcome, .command-hero:not(.overview-active) .hero-brand-card { display: none; }
+    .command-hero:not(.overview-active) .engine-panel { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(190px, 1fr) minmax(260px, 1.3fr); align-items: center; gap: 10px 18px; padding: 10px 14px; }
+    .command-hero:not(.overview-active) .engine-selected { margin: 0; border-top: 0; border-left: 1px solid var(--line-soft); padding: 0 0 0 14px; }
+    .command-hero:not(.overview-active) .engine-controls { margin: 0; }
+    .command-hero:not(.overview-active) .engine-control-footer { margin: 0; }
+    .page-header { margin: 2px 0 14px; }
+    .page-header h1 { font-size: 19px; font-weight: 750; letter-spacing: -.03em; }
+    .page-header p { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .workspace-search { position: relative; display: flex; width: min(460px, 48vw); min-width: 220px; align-items: center; }
+    .workspace-search > svg { position: absolute; left: 12px; z-index: 1; width: 17px; height: 17px; fill: none; stroke: #91a2c6; stroke-linecap: round; stroke-width: 1.8; pointer-events: none; }
+    .workspace-search input { height: 37px; border-radius: 11px; padding: 0 58px 0 38px; font-size: 11px; }
+    .workspace-search kbd { position: absolute; right: 10px; border: 1px solid rgba(135, 155, 204, .2); border-radius: 5px; padding: 2px 5px; color: #8695b6; font-size: 9px; }
+    .search-results { position: absolute; top: calc(100% + 7px); right: 0; left: 0; z-index: 30; max-height: 340px; overflow-y: auto; border: 1px solid rgba(120, 151, 221, .28); border-radius: 12px; background: #0c1327; box-shadow: 0 20px 50px rgba(0,0,0,.46); }
+    .search-result { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line-soft); padding: 10px 12px; color: #e6ecff; text-align: left; }
+    .search-result:last-child { border-bottom: 0; }
+    .search-result:hover, .search-result:focus-visible { background: rgba(66, 216, 245, .08); outline: none; }
+    .search-result small { color: #95a4c4; font-size: 10px; }
+    .topbar-actions { flex: 0 0 auto; }
+    .icon-control { position: relative; display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--line-soft); border-radius: 11px; background: rgba(20, 29, 55, .7); color: #c5d2f3; }
+    .icon-control:hover { border-color: rgba(66, 216, 245, .45); color: white; }
+    .icon-control svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+    #notifications-top-count:not(.hidden) { position: absolute; top: -5px; right: -5px; min-width: 16px; border-radius: 999px; background: #e74777; padding: 1px 4px; color: white; font-size: 9px; font-weight: 800; line-height: 1.3; }
+    .brand-mark, .account-mark { display: grid; place-items: center; border: 1px solid rgba(94, 212, 249, .3); background: linear-gradient(145deg, rgba(70, 91, 194, .3), rgba(15, 34, 66, .72)); box-shadow: inset 0 1px rgba(240, 244, 247, .08), 0 0 24px rgba(71, 74, 223, .16); }
+    .brand-mark { width: 42px; height: 42px; border-radius: 14px; }
+    .brand-mark svg { width: 25px; height: 25px; color: var(--blue); filter: drop-shadow(0 0 8px rgba(66, 216, 245, .5)); }
+    .account-mark { width: 60px; height: 60px; overflow: hidden; border-radius: 50%; }
+    .account-mark img { width: 100%; height: 100%; object-fit: cover; }
+    .account-avatar-fallback { width: 30px; height: 30px; color: var(--blue); }
+    .butterfly { color: var(--blue); }
+    .nav-item { color: #aab5d2; border-left: 3px solid transparent; border-radius: 0 10px 10px 0; margin: 3px 8px 3px 0; gap: 10px; padding: 11px 12px; transition: color .18s ease, background-color .18s ease, transform .18s ease; }
+    .nav-item:hover, .nav-item.active { color: #f2f7ff; background: linear-gradient(90deg, rgba(49, 110, 229, .3), rgba(102, 59, 206, .15)); border-left-color: var(--blue); box-shadow: inset 0 0 20px rgba(44, 131, 242, .07); }
+    .nav-item:hover { transform: translateX(2px); }
+    .nav-icon { display: grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; color: #8593b3; }
+    .nav-icon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+    .nav-item.active .nav-icon { color: var(--blue); }
+    .eyebrow { color: #a8b5d4; font-size: 11px; }
     .muted { color: var(--muted); }
-    .metric { min-width: 0; }
-    .metric-icon { width: 42px; height: 42px; border-radius: 999px; display: grid; place-items: center; background: rgba(19, 107, 200, .22); color: #7dbdff; }
-    .metric-icon.pink { background: rgba(210, 41, 106, .25); color: #ff3c78; }
-    .control { border: 1px solid rgba(39, 151, 255, .38); background: linear-gradient(180deg, rgba(15, 51, 92, .85), rgba(4, 25, 50, .9)); color: #dcedff; }
-    .control:hover { border-color: var(--blue); }
-    .control:focus-visible, .nav-item:focus-visible, .account-row:focus-visible, .save:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
-    .control:disabled { cursor: not-allowed; filter: grayscale(.7); opacity: .42; }
-    .control.start { background: linear-gradient(135deg, #35e0c3, #16b6dc); color: #032034; border: 0; }
-    .control.stop { background: linear-gradient(135deg, #fb3569, #a92858); color: white; border: 0; }
-    .field { width: 100%; color: var(--text); background: rgba(2, 21, 43, .9); border: 1px solid rgba(47, 143, 235, .35); outline: none; }
-    .field:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(32, 201, 255, .1); }
-    .save { background: linear-gradient(100deg, #19bde9, #4a70ff 55%, #8e48f5); color: white; }
-    .logs { color: #80bdf2; background: rgba(1, 10, 23, .72); font-family: "Cascadia Code", Consolas, monospace; }
-    .account-row { border: 1px solid transparent; }
-    .account-row:hover, .account-row.selected { border-color: var(--line); background: rgba(13, 83, 158, .22); }
+    body .text-cyan-100 { color: var(--text); }
+    body .text-cyan-200, body .text-blue-200 { color: #d6def5; }
+    body .text-cyan-300, body .text-blue-100 { color: var(--blue); }
+    body [class~="bg-blue-900/60"], body [class~="bg-blue-900/40"], body [class~="bg-blue-900/30"] { background-color: rgba(39, 62, 120, .25); }
+    body [class~="border-blue-900/60"] { border-color: rgba(112, 140, 211, .2); }
+    body [class~="bg-slate-950/30"] { background-color: rgba(5, 9, 20, .48); }
+    body [class~="bg-cyan-400"] { background-color: var(--blue); }
+    body [class~="ring-cyan-400/30"] { --tw-ring-color: rgba(66, 216, 245, .3); }
+    body [class~="hover:bg-blue-900/30"]:hover { background-color: rgba(47, 67, 128, .28); }
+    body [class~="hover:border-cyan-400/50"]:hover { border-color: rgba(66, 216, 245, .4); }
+    body [class~="hover:bg-cyan-400/5"]:hover { background-color: rgba(66, 216, 245, .055); }
+    .metric { position: relative; isolation: isolate; min-width: 0; min-height: 74px; overflow: hidden; border-radius: 14px; transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+    .metric::before { position: absolute; top: 0; left: 16px; width: 48px; height: 2px; border-radius: 999px; background: linear-gradient(90deg, transparent, var(--metric-accent), transparent); content: ""; }
+    .metric::after { position: absolute; top: -54px; right: -38px; z-index: 0; width: 132px; height: 132px; border: 1px solid var(--metric-ring); border-radius: 50%; background: radial-gradient(circle, var(--metric-glow), transparent 68%); content: ""; pointer-events: none; }
+    .metric:hover { transform: translateY(-2px); border-color: var(--metric-ring); }
+    .metric > * { position: relative; z-index: 1; }
+    .metric[data-metric] { --metric-accent: var(--blue); --metric-glow: rgba(182, 194, 201, .08); --metric-ring: rgba(182, 194, 201, .18); }
+    .metric[data-metric="status"] { --metric-accent: #41d9ef; --metric-glow: rgba(65, 217, 239, .1); --metric-ring: rgba(65, 217, 239, .2); }
+    .metric[data-metric="targets"] { --metric-accent: #a78bfa; --metric-glow: rgba(139, 92, 246, .14); --metric-ring: rgba(139, 92, 246, .27); }
+    .metric[data-metric="follows"] { --metric-accent: #38d9ae; --metric-glow: rgba(56, 217, 174, .1); --metric-ring: rgba(56, 217, 174, .2); }
+    .metric[data-metric="mode"] { --metric-accent: #75b8ff; --metric-glow: rgba(65, 142, 255, .1); --metric-ring: rgba(65, 142, 255, .2); }
+    .metric-icon { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border: 1px solid var(--metric-ring); border-radius: 12px; background: var(--metric-glow); color: var(--metric-accent); transition: transform .2s ease, background-color .2s ease; }
+    .metric:hover .metric-icon { transform: translateY(-2px) scale(1.04); }
+    .metric-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+    .metric .eyebrow { font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+    .metric-value { display: block; margin-top: 3px; font-size: 1.2rem; font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: -.035em; line-height: 1.2; }
+    .metric-value.status-pill { display: inline-flex; margin-top: 5px; border-radius: 999px; padding: 3px 9px; font-size: 11px; letter-spacing: .06em; line-height: 1.4; text-transform: uppercase; }
+    .mode-pill { display: inline-flex; margin-top: 5px; border: 1px solid transparent; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; }
+    .mode-pill.pending { color: #c0c7cc; background: rgba(140, 150, 158, .14); }
+    .mode-pill.dry-run { border-color: rgba(201, 171, 109, .2); color: #d9c596; background: rgba(201, 171, 109, .1); }
+    .mode-pill.live { border-color: rgba(111, 193, 157, .2); color: #a4d6bd; background: rgba(111, 193, 157, .1); }
+    .control { border: 1px solid rgba(123, 147, 211, .2); background: rgba(42, 57, 100, .25); color: #e7ebff; transition: border-color .18s ease, background-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+    .control:hover:not(:disabled) { border-color: rgba(118, 184, 255, .42); background-color: rgba(55, 74, 131, .35); transform: translateY(-1px); }
+    .control:focus-visible, .nav-item:focus-visible, .account-row:focus-visible, .save:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+    .control:disabled { cursor: not-allowed; filter: grayscale(.5); opacity: .48; }
+    .control.start { background: linear-gradient(115deg, #7a3ff0, #4f62e8); color: white; border: 1px solid rgba(190, 164, 255, .38); box-shadow: 0 8px 26px rgba(104, 65, 228, .24); }
+    .control.start:hover:not(:disabled) { background: linear-gradient(115deg, #8954ff, #5b70f4); box-shadow: 0 10px 30px rgba(104, 65, 228, .32); }
+    .control.stop { background: rgba(173, 44, 75, .32); color: #ff9eae; border: 1px solid rgba(250, 94, 125, .32); }
+    .control.stop:hover:not(:disabled) { background: rgba(204, 48, 82, .44); border-color: rgba(250, 94, 125, .52); }
+    .field { width: 100%; color: var(--text); background: rgba(5, 9, 20, .72); border: 1px solid rgba(123, 147, 211, .22); outline: none; transition: border-color .18s ease, box-shadow .18s ease; }
+    .field::placeholder { color: #7886a7; }
+    .field:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(66, 216, 245, .12); }
+    .save { background: linear-gradient(115deg, #7a3ff0, #4f62e8); color: white; }
+    .logs { color: #d5def7; background: rgba(5, 8, 18, .8); font-family: "Cascadia Code", Consolas, monospace; }
+    .account-row { border: 1px solid transparent; transition: border-color .18s ease, background-color .18s ease; }
+    .account-row:hover, .account-row.selected { border-color: rgba(114, 132, 226, .32); background: rgba(80, 68, 168, .12); }
+    .status-pill { transition: color .2s ease, background .2s ease; }
+    .status-running { color: #a4d6bd; background: rgba(111, 193, 157, .12); }
+    .status-paused { color: #d9c596; background: rgba(201, 171, 109, .11); }
+    .status-error { color: #d6a5ab; background: rgba(175, 101, 111, .12); }
+    .status-stopped { color: #c0c7cc; background: rgba(140, 150, 158, .12); }
+    .status-suspended { color: #d6a5ab; background: rgba(175, 101, 111, .15); }
+    .status-restricted, .status-rate_limited { color: #d9c596; background: rgba(201, 171, 109, .11); }
+    .account-health { border-top: 1px solid var(--line-soft); }
+    .health-track { height: 6px; overflow: hidden; border-radius: 999px; background: rgba(255, 255, 255, .075); }
+    .health-fill { height: 100%; border-radius: inherit; transition: width .35s ease; }
+    .health-fill.healthy { background: #8fc5a9; }
+    .health-fill.watch { background: #ceb884; }
+    .health-fill.review { background: #c99d78; }
+    .health-fill.critical { background: #ca838a; }
+    .health-badge { border-radius: 999px; padding: 2px 7px; font-size: 10px; font-weight: 700; }
+    .health-badge.healthy { color: #a4d6bd; background: rgba(111, 193, 157, .12); }
+    .health-badge.watch { color: #d9c596; background: rgba(201, 171, 109, .12); }
+    .health-badge.review { color: #d6b092; background: rgba(201, 157, 120, .12); }
+    .health-badge.critical { color: #d6a5ab; background: rgba(175, 101, 111, .15); }
     .inbox-message { max-width: 82%; }
-    .inbox-message.incoming { background: rgba(8, 40, 74, .85); }
-    .inbox-message.outgoing { margin-left: auto; background: linear-gradient(135deg, rgba(20, 139, 218, .8), rgba(92, 72, 214, .8)); }
+    .inbox-message.incoming { background: rgba(52, 68, 112, .38); }
+    .inbox-message.outgoing { margin-left: auto; background: linear-gradient(125deg, rgba(89, 59, 176, .8), rgba(49, 74, 153, .86)); }
     .inbox-workspace { height: min(620px, calc(100vh - 260px)); min-height: 420px; }
     .inbox-conversation-list { min-height: 0; overflow-y: auto; }
     .inbox-message-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-    .status-pill { transition: color .2s ease, background .2s ease; }
-    .status-running { color: #7fffdc; background: rgba(16, 185, 129, .16); }
-    .status-paused { color: #ffd479; background: rgba(245, 158, 11, .16); }
-    .status-error { color: #ff91a8; background: rgba(244, 63, 94, .16); }
-    .status-stopped { color: #a9c5e3; background: rgba(71, 108, 146, .2); }
-    .status-suspended { color: #ffb1bf; background: rgba(244, 63, 94, .24); }
-    .status-restricted, .status-rate_limited { color: #ffd479; background: rgba(245, 158, 11, .16); }
     .toast { opacity: 0; pointer-events: none; transform: translateY(10px); transition: opacity .2s ease, transform .2s ease; }
     .toast.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
-    .toast.success { border-color: rgba(52, 211, 153, .45); color: #9ff5d5; }
-    .toast.error { border-color: rgba(251, 113, 133, .45); color: #ffb1bf; }
+    .toast.success { border-color: rgba(111, 193, 157, .42); color: #a4d6bd; }
+    .toast.error { border-color: rgba(198, 115, 127, .45); color: #e2b0b6; }
+    .footer { gap: 12px; padding-top: 12px; padding-bottom: 12px; }
+    .user-chip { display: flex; min-width: 0; align-items: center; gap: 9px; border: 1px solid var(--line-soft); border-radius: 12px; background: rgba(23, 31, 57, .48); padding: 7px 10px; }
+    .user-avatar { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border-radius: 50%; background: linear-gradient(135deg, rgba(127, 71, 238, .7), rgba(46, 183, 223, .55)); color: white; font-size: 11px; font-weight: 800; }
+    .sidebar-status { margin: 12px; border: 1px solid var(--line-soft); border-radius: 14px; background: linear-gradient(145deg, rgba(15, 22, 43, .9), rgba(9, 14, 28, .9)); padding: 12px; }
+    .signal-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #8491ae; box-shadow: 0 0 0 4px rgba(132, 145, 174, .1); }
+    .signal-dot.running { background: #2fe0b0; box-shadow: 0 0 0 4px rgba(47, 224, 176, .1), 0 0 14px rgba(47, 224, 176, .55); }
+    .signal-dot.secure { background: var(--blue); box-shadow: 0 0 0 4px rgba(66, 216, 245, .1), 0 0 12px rgba(66, 216, 245, .35); }
+    .signal-dot.attention { background: #f1b85b; box-shadow: 0 0 0 4px rgba(241, 184, 91, .1); }
+    .signal-dot.stopped { background: #8290ae; }
+    .overview-account-card { min-width: 0; border: 1px solid rgba(123, 147, 211, .17); border-radius: 12px; background: linear-gradient(140deg, rgba(19, 28, 52, .9), rgba(9, 15, 30, .9)); padding: 10px; transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+    .overview-account-card:hover { transform: translateY(-2px); border-color: rgba(111, 150, 255, .38); box-shadow: 0 12px 28px rgba(3, 5, 16, .28); }
+    .overview-account-card.selected { border-color: rgba(139, 92, 246, .55); box-shadow: inset 0 0 0 1px rgba(139, 92, 246, .12), 0 0 24px rgba(139, 92, 246, .08); }
+    .account-card-avatar { display: grid; width: 36px; height: 36px; flex: 0 0 36px; overflow: hidden; place-items: center; border: 1px solid rgba(102, 160, 235, .26); border-radius: 11px; background: linear-gradient(145deg, rgba(57, 91, 166, .3), rgba(33, 39, 93, .42)); color: var(--blue); }
+    .account-card-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .account-card-avatar-fallback { font-size: 15px; font-weight: 700; }
+    .activity-list { max-height: 318px; overflow-y: auto; overscroll-behavior: contain; }
+    .activity-item { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 10px; padding: 9px 0; }
+    .activity-marker { position: relative; display: flex; justify-content: center; }
+    .activity-marker::before { width: 7px; height: 7px; margin-top: 5px; border: 1px solid rgba(91, 214, 242, .75); border-radius: 50%; background: rgba(53, 172, 221, .35); box-shadow: 0 0 10px rgba(53, 172, 221, .28); content: ""; }
+    .activity-item:not(:last-child) .activity-marker::after { position: absolute; top: 15px; bottom: -7px; width: 1px; background: linear-gradient(rgba(79, 132, 205, .36), rgba(79, 132, 205, .03)); content: ""; }
+    .health-copy { max-width: 100%; color: #8998b8; font-size: 10px; line-height: 1.5; }
+    .section-heading { color: #edf2ff; letter-spacing: -.015em; }
+    .overview-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .85fr); gap: 12px; }
+    .overview-account-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .activity-account-label { color: #91a1c4; font-size: 9px; }
+    .quick-action { display: flex; min-height: 54px; align-items: center; gap: 10px; border: 1px solid var(--line-soft); border-radius: 11px; background: rgba(5, 9, 20, .35); padding: 10px; color: #e1e9ff; text-align: left; transition: border-color .16s ease, background .16s ease; }
+    .quick-action:hover { border-color: rgba(66, 216, 245, .4); background: rgba(66, 216, 245, .06); }
+    .quick-action-icon { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border-radius: 9px; background: rgba(81, 92, 207, .2); color: #89d9ff; }
+    @media (max-width: 1120px) {
+      .app-shell { grid-template-columns: 172px minmax(0, 1fr); }
+      .overview-account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     @media (max-width: 800px) {
-      .layout { grid-template-columns: 1fr; }
-      .sidebar { border-right: 0; border-bottom: 1px solid var(--line-soft); }
-      .sidebar nav { display: flex; overflow-x: auto; }
-      .nav-item { flex: 0 0 auto; border-left: 0; border-bottom: 3px solid transparent; }
+      .app-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; }
+      .topbar { grid-column: 1; grid-row: 1; }
+      .layout { display: grid; grid-column: 1; grid-row: 2; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+      .sidebar { position: static; grid-column: auto; grid-row: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--line-soft); }
+      .content { grid-column: auto; grid-row: auto; }
+      .footer { grid-column: 1; grid-row: 4; }
+      .sidebar nav { display: flex; gap: 2px; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; padding: 8px; scrollbar-width: thin; }
+      .nav-item { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; border-radius: 9px; margin: 0; padding: 10px 12px; }
       .nav-item:hover, .nav-item.active { border-left-color: transparent; border-bottom-color: var(--blue); }
-      .content { padding: 12px; }
+      .content { padding: 18px 14px 24px; }
+      .sidebar-status { display: none; }
       .inbox-workspace { height: 70vh; min-height: 380px; }
+      .command-hero { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; }
+      .hero-welcome, .hero-brand-card, .engine-panel { grid-column: 1; grid-row: auto; }
+      .engine-panel { display: block; }
+      .command-hero:not(.overview-active) .engine-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+      .command-hero:not(.overview-active) .engine-selected { border-left: 0; padding-left: 0; }
+      .command-hero:not(.overview-active) .engine-controls { grid-column: 1; }
+      .command-hero:not(.overview-active) .engine-control-footer { grid-column: 2; }
+      .overview-layout { grid-template-columns: minmax(0, 1fr); }
+      .overview-account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .page-header { margin-bottom: 10px; }
+    }
+    @media (max-width: 560px) {
+      .topbar { min-height: 68px; gap: 8px; padding: 12px 14px; }
+      .topbar-actions { gap: 7px; }
+      .topbar #logout { padding: 8px 9px; font-size: 10px; }
+      .workspace-search { width: auto; min-width: 0; flex: 1; }
+      .workspace-search input { height: 34px; padding-right: 10px; }
+      .workspace-search kbd { display: none; }
+      .account-mark { width: 48px; height: 48px; }
+      .account-mark svg { width: 28px; height: 28px; }
+      .content > div { gap: 12px; }
+      .inbox-workspace { height: 68vh; min-height: 360px; }
+      .inbox-workspace > div { min-height: 0; }
+      .user-chip { display: none; }
+      .command-hero:not(.overview-active) .engine-panel { grid-template-columns: minmax(0, 1fr); }
+      .command-hero:not(.overview-active) .engine-control-footer { grid-column: 1; }
+      .hero-brand-copy { gap: 11px; padding: 14px; }
+      .hero-brand-mark { width: 46px; height: 46px; flex-basis: 46px; }
+      .hero-brand-mark svg { width: 29px; height: 29px; }
+      .hero-orbit-art { right: -20%; width: 62%; }
+      .overview-account-grid { grid-template-columns: minmax(0, 1fr); }
+      .metric { min-height: 68px; padding: 11px; }
+      .metric-icon { width: 34px; height: 34px; flex-basis: 34px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
     }
   </style>
 </head>
 <body>
+  {% include "web3_background.html" %}
   <div class="app-shell">
     <header class="topbar flex items-center justify-between gap-5 px-5">
-      <div class="flex min-w-0 items-center gap-4">
-        <div class="hidden items-center gap-3 border-r border-white/15 pr-5 sm:flex">
-          <div class="text-2xl"></div>
-          <div class="font-display text-lg italic text-white">Vroid<span class="text-violet-300">Studio</span><sup class="text-violet-300">♥</sup></div>
-        </div>
-        <div class="brand-mark"><svg class="butterfly" width="25" height="25" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
-        <div class="min-w-0"><h1 class="truncate text-lg font-bold"><span class="text-cyan-300">BlueSky</span> Signal Desk</h1><p class="text-xs muted">Multi-account worker control</p></div>
+      <div class="workspace-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.5 4.5"></path></svg>
+        <input id="workspace-search" class="field" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="workspace-search-results" placeholder="Search accounts or pages…">
+        <kbd>Ctrl K</kbd>
+        <div id="workspace-search-results" class="search-results hidden" role="listbox"></div>
       </div>
-      <div class="relative flex items-center gap-3"><button id="emergency-control" type="button" class="control stop rounded-lg px-3 py-2 text-xs font-bold">Emergency stop</button><button id="logout" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Log out</button></div>
+      <div class="topbar-actions relative flex items-center gap-3">
+        <button id="notification-control" type="button" class="icon-control" aria-label="Open notifications" title="Notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-2.5 7-2.5 9h17C20.5 16 18 16 18 9ZM10 21h4"></path></svg>
+          <span id="notifications-top-count" class="hidden"></span>
+        </button>
+        <div class="user-chip">
+          <span id="user-initials" class="user-avatar">VS</span>
+          <span class="min-w-0"><strong id="user-name" class="block max-w-36 truncate text-xs">Loading account</strong><span id="user-role" class="block text-[10px] capitalize muted">Team workspace</span></span>
+        </div>
+        <button id="logout" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Log out</button>
+      </div>
     </header>
     <div class="layout">
       <aside class="sidebar flex flex-col justify-between">
+        <a href="#overview" class="sidebar-brand flex items-center gap-3 px-5" aria-label="VroidStudio Signal Engine home">
+          <span class="brand-mark sidebar-brand-mark"><svg viewBox="0 0 32 32" fill="currentColor" role="img" aria-label="Bluesky logo"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></span>
+          <span class="min-w-0"><strong class="block truncate text-sm">VroidStudio</strong><span class="block text-[11px] muted">Signal Engine</span></span>
+        </a>
         <nav class="py-4">
-          <a class="nav-item active flex items-center gap-4 px-5 py-4 text-sm" href="#"><span class="nav-icon">⌂</span>Home</a>
-          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⌾</span>Hunt</a>
-          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#accounts"><span class="nav-icon">♙</span>Accounts</a>
-          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#inbox"><span class="nav-icon">✉</span>Inbox</a>
-          <a id="notifications-nav" class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#notifications"><span class="nav-icon">♧</span><span class="flex-1">Notifications</span><span id="notifications-nav-count" class="hidden rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"></span></a>
-          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#logs-panel"><span class="nav-icon">▤</span>Logs</a>
-          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#settings"><span class="nav-icon">⚙</span>Settings</a>
+          <a class="nav-item active flex items-center gap-4 px-5 py-4 text-sm" href="#overview" data-page-nav="overview"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="m3.5 10 8.5-7 8.5 7"></path><path d="M5.5 9v11h13V9M9.5 20v-6h5v6"></path></svg></span>Overview</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#accounts" data-page-nav="accounts"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.8 20v-1.5a6.2 6.2 0 0 1 12.4 0V20zM16 5.2a3.5 3.5 0 0 1 0 6.7M17.3 14.2a5.8 5.8 0 0 1 3.9 5.5"></path></svg></span>Accounts</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#inbox" data-page-nav="inbox"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"></rect><path d="m4 7 8 6 8-6M3.5 15h4l1.5 2h6l1.5-2h4"></path></svg></span><span class="flex-1">Inbox</span><span id="inbox-nav-count" class="hidden rounded-full bg-cyan-500 px-1.5 py-0.5 text-[10px] font-bold text-slate-950"></span></a>
+          <a id="notifications-nav" class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#notifications" data-page-nav="notifications"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-2.5 7-2.5 9h17C20.5 16 18 16 18 9ZM10 21h4"></path></svg></span><span class="flex-1">Notifications</span><span id="notifications-nav-count" class="hidden rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white"></span></a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#discovery" data-page-nav="discovery"><span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 5 5M8.5 12.5l2-4 4 2-2 4z"></path></svg></span>Discovery & settings</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#overview-followbacks" data-section-nav="overview-followbacks" data-section-page="overview"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 12h15M12 5l7 7-7 7"></path><path d="M4 5v14"></path></svg></span>Followbacks</a>
+          <a class="nav-item flex items-center gap-4 px-5 py-4 text-sm" href="#accounts" data-section-nav="accounts" data-section-page="accounts"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.8-3 8-7 10-4-2-7-5.2-7-10V6z"></path><path d="m9 12 2 2 4-4"></path></svg></span>Safety</a>
         </nav>
-        <div class="hidden p-4 text-xs muted lg:block">Encrypted credentials<br>Account-isolated workers</div>
+        <div class="sidebar-status">
+          <div class="mb-2 flex items-center gap-2"><span class="signal-dot secure"></span><span class="eyebrow">Workspace secure</span></div>
+          <strong class="block text-xs">Account-isolated</strong>
+          <span class="mt-1 block text-[10px] muted">Encrypted credentials</span>
+        </div>
       </aside>
       <main class="content">
-        <div class="mx-auto max-w-[1080px] space-y-3">
+        <div class="mx-auto max-w-[1280px] space-y-4">
           <div id="emergency-banner" class="hidden rounded-xl border border-rose-400/50 bg-rose-500/15 p-3 text-sm text-rose-100"><strong>Global emergency stop is active.</strong> Automated workers are stopped. <span id="emergency-reason"></span></div>
-          <section class="panel glow flex flex-col justify-between gap-4 rounded-xl p-4 sm:flex-row sm:items-center">
-            <div class="flex min-w-0 items-center gap-4">
-              <div class="account-mark"><svg class="butterfly" width="34" height="34" viewBox="0 0 32 32" fill="currentColor"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></div>
-              <div class="min-w-0"><p class="eyebrow">Selected account</p><h2 id="account-handle" class="truncate text-lg font-bold">@Select an account</h2><span id="account-status" class="mt-1 inline-flex rounded-full bg-blue-900/60 px-3 py-1 text-xs text-blue-200">No account selected</span></div>
+          <div id="page-header" class="page-header hidden"><h1 id="page-title">Overview</h1><p id="page-description"></p></div>
+          <section id="selected-worker-panel" class="command-hero overview-active" aria-label="Engine status and account controls">
+            <div class="hero-welcome">
+              <p class="eyebrow font-bold uppercase tracking-[.16em] text-cyan-300">VROIDSTUDIO / COMMAND CENTER</p>
+              <h2>Welcome back, <span id="welcome-user-name">there</span> <span aria-hidden="true">✦</span></h2>
+              <p>Your connected workspace, at a glance.</p>
             </div>
-            <div class="flex flex-wrap gap-2"><button id="review-suspended" class="hidden control rounded-lg px-4 py-3 text-sm font-bold">Mark suspension review complete</button><button data-control="start" onclick="control('start')" class="control start rounded-lg px-5 py-3 text-sm font-bold">▶ &nbsp;Start</button><button data-control="pause" onclick="control('pause')" class="control rounded-lg px-5 py-3 text-sm font-bold">Ⅱ &nbsp;Pause</button><button data-control="stop" onclick="control('stop')" class="control stop rounded-lg px-5 py-3 text-sm font-bold">■ &nbsp;Stop</button></div>
+            <div class="hero-brand-card">
+              <div class="hero-brand-copy">
+                <span class="hero-brand-mark"><svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M15.8 15.1C12.6 7.1 7.2 3.3 3.3 4.7-.5 6.1 1.7 12.8 7 15.5c-2.9.9-4.9 3.2-4.4 5.7.7 3.5 6.7 2.4 10.1-1.6l3.1-3.6Zm.4 0c3.1-8 8.6-11.8 12.5-10.4 3.8 1.4 1.6 8.1-3.7 10.8 2.9.9 4.9 3.2 4.4 5.7-.7 3.5-6.7 2.4-10.1-1.6l-3.1-3.6Zm-.2 1.9c-1.9 1.6-4.1 2.5-6.4 2.3 1.9 3.5 4.5 6.1 6.4 6.1s4.5-2.6 6.4-6.1c-2.3.2-4.5-.7-6.4-2.3Z"/></svg></span>
+                <div class="min-w-0"><p class="hero-brand-title">VroidStudio Signal Engine</p><p class="hero-brand-subtitle">Discover &nbsp;·&nbsp; Connect &nbsp;·&nbsp; Grow</p></div>
+              </div>
+              <div class="hero-orbit-art" aria-hidden="true"></div>
+            </div>
+            <aside class="engine-panel panel rounded-xl" aria-label="Engine status controls">
+              <div class="engine-panel-top">
+                <div class="min-w-0"><p class="engine-panel-heading">Engine status</p><div class="engine-panel-state"><span id="engine-dot" class="signal-dot"></span><strong id="engine-state">Loading workers</strong></div><p id="engine-count" class="engine-panel-detail">Checking connected accounts…</p></div>
+              </div>
+              <div class="engine-selected">
+                <div class="account-mark"><img id="account-avatar" class="hidden" alt=""><svg id="account-avatar-fallback" class="account-avatar-fallback" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 21a7 7 0 0 1 14 0"></path></svg></div>
+                <div class="account-selected-copy"><p class="eyebrow">Selected account</p><h2 id="account-handle" class="truncate font-bold">@Select an account</h2><span id="account-status" class="status-pill status-stopped inline-flex rounded-full px-3 py-1">No account selected</span></div>
+              </div>
+              <div class="engine-controls">
+                <button data-control="start" onclick="control('start')" class="control start rounded-lg font-bold">▶ Start</button>
+                <button data-control="pause" onclick="control('pause')" class="control rounded-lg font-bold">Ⅱ Pause</button>
+                <button data-control="stop" onclick="control('stop')" class="control stop rounded-lg font-bold">■ Stop</button>
+              </div>
+              <div class="engine-control-footer">
+                <button id="review-suspended" class="hidden control rounded-lg font-bold">Review complete</button>
+                <button id="emergency-control" type="button" class="control stop rounded-lg font-bold" disabled>Emergency stop</button>
+              </div>
+            </aside>
           </section>
 
-          <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon text-xl">Ⅱ</div><div><p class="eyebrow">Status</p><strong id="status" class="text-lg">—</strong></div></div>
-            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon text-xl">⌾</div><div><p class="eyebrow">Targets</p><strong id="targets-count" class="text-lg">—</strong></div></div>
-            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon text-xl">♟</div><div><p class="eyebrow">Followed today</p><strong id="follows" class="text-lg">—</strong></div></div>
-            <div class="panel metric flex items-center gap-3 rounded-xl p-3"><div class="metric-icon pink text-xl">●</div><div><p class="eyebrow">Mode</p><strong id="mode" class="text-lg text-rose-400">—</strong></div></div>
+          <section data-page-view="overview" aria-label="Worker performance summary" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="panel metric flex items-center gap-3 p-3" data-metric="status"><div class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.2-6 4.6 12 2.2-6H21"></path></svg></div><div class="min-w-0"><p class="eyebrow">Workers running</p><strong id="status" class="metric-value status-pill status-stopped">—</strong></div></div>
+            <div class="panel metric flex items-center gap-3 p-3" data-metric="targets"><div class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M22 12h-3M12 22v-3M2 12h3"></path></svg></div><div class="min-w-0"><p class="eyebrow">Matched targets</p><strong id="targets-count" class="metric-value">—</strong></div></div>
+            <div class="panel metric flex items-center gap-3 p-3" data-metric="follows"><div class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.8 20v-1.5a6.2 6.2 0 0 1 12.4 0V20zM19 8v6M16 11h6"></path></svg></div><div class="min-w-0"><p class="eyebrow">Followed today</p><strong id="follows" class="metric-value">—</strong></div></div>
+            <div class="panel metric flex items-center gap-3 p-3" data-metric="mode"><div class="metric-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.8-3 8-7 10-4-2-7-5.2-7-10V6z"></path><path d="m9 12 2 2 4-4"></path></svg></div><div class="min-w-0"><p class="eyebrow">Accounts in dry run</p><strong id="mode" class="mode-pill pending">—</strong></div></div>
           </section>
 
-          <section id="followed-accounts" class="panel rounded-xl p-4">
+          <section id="overview-workspace" data-page-view="overview" class="overview-layout">
+            <article id="overview-accounts-panel" class="panel rounded-xl p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div><h3 class="section-heading font-bold">Connected accounts</h3><p class="mt-1 text-xs muted">Worker state, observed signals, and daily usage.</p></div>
+                <span id="overview-accounts-count" class="rounded-full border border-blue-900/60 bg-slate-950/30 px-2.5 py-1 text-[10px] font-semibold muted">Loading accounts</span>
+              </div>
+              <div id="overview-account-grid" class="overview-account-grid">
+                <p class="text-sm muted">Loading connected accounts…</p>
+              </div>
+            </article>
+            <article class="panel rounded-xl p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div><h3 class="section-heading font-bold">Recent activity</h3><p id="overview-activity-account" class="mt-1 text-xs muted">Account notifications and selected worker logs.</p></div>
+              </div>
+              <div id="overview-activity-list" class="activity-list">
+                <p class="text-sm muted">Loading recorded activity…</p>
+              </div>
+            </article>
+            <article id="overview-followbacks" class="panel rounded-xl p-4">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div><h3 class="section-heading font-bold">Recent followbacks <span id="overview-followback-count" class="ml-1 rounded-full bg-blue-900/60 px-2 py-0.5 text-xs text-cyan-200">0</span></h3><p class="mt-1 text-xs muted">People who followed your accounts. Follow them back or start a chat.</p></div>
+              </div>
+              <p id="overview-followback-status" class="mb-3 min-h-4 text-xs muted">Checking recent followers...</p>
+              <div id="overview-followback-list" class="grid gap-2"><p class="text-sm muted">Recent followers will appear here.</p></div>
+            </article>
+            <article class="panel rounded-xl p-4">
+              <div class="mb-3"><h3 class="section-heading font-bold">Quick access</h3><p class="mt-1 text-xs muted">Jump to a workspace tool.</p></div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <button type="button" class="quick-action" onclick="setActivePage('discovery')"><span class="quick-action-icon">⌕</span><span><strong class="block text-xs">Discovery</strong><small class="muted">Sources & settings</small></span></button>
+                <button type="button" class="quick-action" onclick="setActivePage('inbox')"><span class="quick-action-icon">✉</span><span><strong class="block text-xs">Unified inbox</strong><small class="muted">Messages by account</small></span></button>
+                <button type="button" class="quick-action" onclick="setActivePage('notifications')"><span class="quick-action-icon">♧</span><span><strong class="block text-xs">Notifications</strong><small class="muted">Recent account activity</small></span></button>
+                <button type="button" class="quick-action" onclick="setActivePage('accounts')"><span class="quick-action-icon">♙</span><span><strong class="block text-xs">Manage accounts</strong><small class="muted">Connect & review signals</small></span></button>
+              </div>
+            </article>
+          </section>
+
+          <section id="followed-accounts" data-page-view="accounts" class="panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♟</span>Followed accounts <span id="followed-account-count" class="rounded-full bg-blue-900/60 px-2 py-0.5 text-xs text-cyan-200">0</span></h2>
               <div class="flex items-center gap-2">
@@ -148,13 +416,14 @@
             <div id="followed-account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><p class="text-sm muted">Select a connected account to see the accounts it follows.</p></div>
           </section>
 
-          <section id="accounts" class="panel rounded-xl p-4">
-            <div class="mb-3 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♙</span>Connected accounts</h2><button onclick="loadAccounts()" class="text-xs text-cyan-300 hover:text-white">Refresh</button></div>
+          <section id="accounts" data-page-view="accounts" class="panel rounded-xl p-4">
+            <div class="mb-1 flex items-center justify-between"><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♙</span>Connected accounts</h2><button onclick="loadAccounts()" class="text-xs text-cyan-300 hover:text-white">Refresh</button></div>
+            <p class="mb-3 text-xs muted">Observed API signals and configured follow usage only; a clear status is not a suspension prediction. Follow activity outside this app may not be counted.</p>
             <div id="account-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"></div>
             <form id="add-account" class="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input id="handle" required class="field rounded-lg px-3 py-2 text-sm" placeholder="name.bsky.social"><input id="app-password" required type="password" class="field rounded-lg px-3 py-2 text-sm" placeholder="App password"><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Connect</button><p id="connection-message" class="sm:col-span-3 min-h-4 text-xs muted">Credentials are encrypted before storage.</p></form>
             <form id="import-accounts" class="mt-4 grid gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3 sm:grid-cols-[1fr_auto]"><label class="text-xs muted">Bulk import (.xlsx with <code>handle</code> and <code>app_password</code> columns)<input id="accounts-file" required type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><button class="control rounded-lg px-4 py-2 text-sm font-bold">Import accounts</button><p id="import-accounts-message" class="sm:col-span-2 min-h-4 text-xs muted">Imported workers remain stopped. Duplicate handles are skipped.</p></form>
           </section>
-          <section id="inbox" class="panel rounded-xl p-4">
+          <section id="inbox" data-page-view="inbox" class="panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">✉</span>Unified inbox</h2>
               <div class="flex gap-2"><input id="inbox-search" class="field rounded-lg px-3 py-2 text-xs" placeholder="Search conversations"><select id="inbox-account" class="field rounded-lg px-3 py-2 text-xs"><option value="">All accounts</option></select><button id="inbox-refresh" class="control rounded-lg px-3 py-2 text-xs font-bold">Sync</button></div>
@@ -170,7 +439,7 @@
               </div>
             </div>
           </section>
-          <section id="notifications" class="panel rounded-xl p-4">
+          <section id="notifications" data-page-view="notifications" class="panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div><h2 class="flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">♧</span>Notifications</h2><p class="mt-1 text-xs muted">Likes, follows, reposts, replies, mentions, messages, and other activity from every connected account.</p></div>
               <button id="notifications-refresh" type="button" class="control rounded-lg px-3 py-2 text-xs font-bold">Refresh</button>
@@ -178,7 +447,7 @@
             <p id="notification-page-status" class="mb-3 min-h-4 text-xs muted"></p>
             <div id="notification-page-list" class="grid gap-2 md:grid-cols-2"><p class="text-sm muted">No notifications from connected accounts yet.</p></div>
           </section>
-          <section id="team-admin" class="hidden panel rounded-xl p-4">
+          <section id="team-admin" data-page-view="accounts" data-master-admin-only class="hidden panel rounded-xl p-4">
             <div class="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 class="font-bold text-cyan-200">Team management</h2><button id="create-invite" class="control rounded-lg px-3 py-2 text-xs font-bold">Create invite</button></div>
             <p class="mb-3 text-xs muted">The master administrator can create, reset, disable, and delete team login users. Passwords are never displayed.</p>
             <pre id="invite-output" class="hidden mb-3 whitespace-pre-wrap rounded-lg bg-slate-950/70 p-3 text-xs text-emerald-300"></pre>
@@ -191,8 +460,8 @@
             <div id="team-users" class="grid gap-2"></div>
           </section>
 
-          <section id="empty" class="panel rounded-xl p-8 text-center muted">Connect an account or select one above to manage its worker.</section>
-          <section id="account-view" class="hidden space-y-3">
+          <section id="empty" data-page-view="discovery" class="panel rounded-xl p-8 text-center muted">Connect an account or select one above to manage its worker.</section>
+          <section id="account-view" data-page-view="discovery" class="hidden space-y-3">
             <div id="warning" class="hidden rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-200"></div>
             <section id="post-discovery" class="panel rounded-xl p-4"><h2 class="mb-2 flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">↗</span>Discover from one post</h2><p class="mb-3 text-xs muted">Use one source at a time. This accepts only a Bluesky post URL, temporarily pauses tag discovery, processes that post's likers, then resumes tag discovery automatically.</p><form id="post-import-form" class="flex flex-col gap-2 sm:flex-row"><input id="post-url" required type="url" pattern="https://bsky\.app/profile/[^/]+/post/[^/?#]+" class="field min-w-0 flex-1 rounded-lg px-3 py-2 text-sm" placeholder="https://bsky.app/profile/name.bsky.social/post/..."><button class="control start rounded-lg px-4 py-2 text-sm font-bold">Discover and follow</button></form><p id="post-import-message" class="mt-2 min-h-4 text-xs muted"></p></section>
             <section id="settings" class="panel rounded-xl p-4"><h2 class="mb-3 flex items-center gap-2 font-bold"><span class="text-xl text-cyan-300">⚙</span>Account settings</h2><form id="settings-form" class="grid gap-2 md:grid-cols-2"><div class="relative md:col-span-2"><span class="absolute left-3 top-2 text-lg text-cyan-300">⌕</span><input id="keywords" class="field rounded-lg py-2 pl-10 pr-3 text-sm" placeholder="Search keywords, comma separated"></div><label class="eyebrow">Follower limit<input id="max-followers" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow limit (per day)<input id="daily-cap" type="number" min="0" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Follow delay (seconds)<input id="delay-min" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="eyebrow">Maximum delay (seconds)<input id="delay-max" type="number" min="1" class="field mt-1 rounded-lg px-3 py-2 text-sm"></label><label class="flex items-center gap-2 text-sm text-blue-100 md:col-span-2"><input id="dry-run" type="checkbox" class="h-4 w-4 accent-cyan-400"> Dry run (recommended)</label><button class="save rounded-lg px-4 py-2 text-sm font-bold md:col-span-2">▣ &nbsp;Save settings</button></form></section>
@@ -201,16 +470,25 @@
         </div>
       </main>
     </div>
-    <footer class="footer flex items-center justify-between px-5 text-xs muted"><div class="flex items-center gap-3"><span class="text-xl text-cyan-300">♥</span><span class="font-semibold">VroidStudio</span><span class="border-l border-white/15 pl-3 text-cyan-300">BlueSky Signal Desk</span></div><div class="hidden gap-5 sm:flex"><span>BlueSky</span><span></span><span>Hunt ・ Follow</span><span>Build Your Empire ♛</span></div><div>☁️ 15°C &nbsp; Mostly cloudy</div></footer>
+    <footer class="footer flex flex-wrap items-center justify-between px-5 text-xs muted"><div class="flex items-center gap-3"><span class="font-semibold text-slate-300">VroidStudio Signal Engine</span><span class="hidden border-l border-white/10 pl-3 sm:inline">Team workspace</span></div><div class="flex items-center gap-4"><span class="hidden sm:inline">Account-isolated workers</span><span>Encrypted credentials</span></div></footer>
     <div id="toast" role="status" aria-live="polite" class="toast panel fixed bottom-6 right-6 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-2xl"></div>
   </div>
   <script>
     let selected = null;
+    let accountSnapshot = [];
+    const accountAvatarRequests = new Map();
+    let activePage = 'overview';
+    let isMasterAdmin = false;
+    let canEdit = false;
     let inboxConversation = null;
     let inboxLoading = false;
+    let inboxLoaded = false;
     let globalEmergencyActive = false;
     let followedAccounts = [];
     let followedAccountsPage = 1;
+    let overviewWorkerLogs = [];
+    let overviewWorkerHandle = '';
+    let overviewNotifications = [];
     const FOLLOWED_ACCOUNTS_PER_PAGE = 20;
     async function api(path, options = {}) {
       const headers = options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
@@ -228,16 +506,239 @@
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => toast.classList.remove('visible'), 3500);
     }
+    const pageDetails = {
+      overview: ['Command center', 'A snapshot of connected accounts, worker state, and recorded activity.'],
+      accounts: ['Accounts', 'Manage connected accounts and inspect observed health signals.'],
+      inbox: ['Unified inbox', 'Manage conversations across your connected accounts.'],
+      notifications: ['Notifications', 'Review activity from your connected accounts.'],
+      discovery: ['Discovery & settings', 'Configure keyword discovery and account-specific worker settings.'],
+    };
+    function setActivePage(page, updateHistory = true, refreshDetails = true) {
+      if (!Object.prototype.hasOwnProperty.call(pageDetails, page)) page = 'overview';
+      const previousPage = activePage;
+      activePage = page;
+      document.querySelectorAll('[data-page-view]').forEach(section => {
+        const pageMatches = section.dataset.pageView === page;
+        const accountRequired = section.id === 'account-view' && !selected;
+        const accountNotRequired = section.id === 'empty' && Boolean(selected);
+        const adminRequired = section.hasAttribute('data-master-admin-only') && !isMasterAdmin;
+        section.classList.toggle('hidden', !pageMatches || accountRequired || accountNotRequired || adminRequired);
+      });
+      document.querySelectorAll('[data-page-nav]').forEach(link => {
+        const active = link.dataset.pageNav === page;
+        link.classList.toggle('active', active);
+        if (active) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+      });
+      document.getElementById('selected-worker-panel').classList.toggle('overview-active', page === 'overview');
+      document.getElementById('page-header').classList.toggle('hidden', page === 'overview');
+      document.getElementById('page-title').textContent = pageDetails[page][0];
+      document.getElementById('page-description').textContent = pageDetails[page][1];
+      if (updateHistory && location.hash !== `#${page}`) history.pushState({ page }, '', `#${page}`);
+      if (page === 'inbox' && !inboxLoaded && !inboxLoading) void loadInbox();
+      if (refreshDetails && selected && page !== previousPage && ['accounts', 'discovery'].includes(page)) {
+        refresh().catch(error => showToast(`Could not load account details: ${error.message}`, 'error'));
+      }
+    }
+    document.querySelectorAll('[data-page-nav]').forEach(link => {
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        setActivePage(link.dataset.pageNav);
+      });
+    });
+    document.querySelectorAll('[data-section-nav]').forEach(link => {
+      link.addEventListener('click', event => {
+        event.preventDefault();
+        const page = link.dataset.sectionPage;
+        const section = document.getElementById(link.dataset.sectionNav);
+        setActivePage(page);
+        requestAnimationFrame(() => section.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      });
+    });
+    window.addEventListener('popstate', () => setActivePage(location.hash.slice(1), false));
+    const workspaceSearch = document.getElementById('workspace-search');
+    const workspaceSearchResults = document.getElementById('workspace-search-results');
+    const searchablePages = Object.entries(pageDetails).map(([id, details]) => ({ id, label: details[0], detail: 'Workspace page', type: 'page' }));
+    function closeWorkspaceSearch() {
+      workspaceSearchResults.classList.add('hidden');
+      workspaceSearch.setAttribute('aria-expanded', 'false');
+    }
+    function renderWorkspaceSearch() {
+      const query = workspaceSearch.value.trim().toLowerCase().replace(/^@/, '');
+      workspaceSearchResults.replaceChildren();
+      if (!query) {
+        closeWorkspaceSearch();
+        return;
+      }
+      const matches = [
+        ...accountSnapshot.filter(item => String(item.handle).toLowerCase().includes(query)).map(item => ({ id: item.id, label: `@${item.handle}`, detail: 'Connected account', type: 'account' })),
+        ...searchablePages.filter(item => `${item.label} ${item.detail}`.toLowerCase().includes(query)),
+        ...( 'followback'.includes(query) || 'followbacks'.includes(query) ? [{ id: 'overview-followbacks', label: 'Followbacks', detail: 'Overview section', type: 'section' }] : []),
+      ].slice(0, 8);
+      if (!matches.length) {
+        const empty = document.createElement('p');
+        empty.className = 'px-3 py-3 text-xs muted';
+        empty.textContent = 'No matching accounts or pages.';
+        workspaceSearchResults.appendChild(empty);
+      }
+      for (const match of matches) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'search-result';
+        button.setAttribute('role', 'option');
+        const label = document.createElement('span');
+        label.textContent = match.label;
+        const detail = document.createElement('small');
+        detail.textContent = match.detail;
+        button.append(label, detail);
+        button.addEventListener('click', () => {
+          closeWorkspaceSearch();
+          workspaceSearch.value = '';
+          if (match.type === 'account') selectAccount(match.id, 'discovery');
+          else if (match.type === 'section') {
+            setActivePage('overview');
+            requestAnimationFrame(() => document.getElementById('overview-followbacks').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+          } else setActivePage(match.id);
+        });
+        workspaceSearchResults.appendChild(button);
+      }
+      workspaceSearchResults.classList.remove('hidden');
+      workspaceSearch.setAttribute('aria-expanded', 'true');
+    }
+    workspaceSearch.addEventListener('input', renderWorkspaceSearch);
+    workspaceSearch.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeWorkspaceSearch();
+      if (event.key === 'Enter') {
+        const firstResult = workspaceSearchResults.querySelector('button');
+        if (firstResult) firstResult.click();
+      }
+    });
+    document.addEventListener('click', event => {
+      if (!event.target.closest('.workspace-search')) closeWorkspaceSearch();
+    });
+    document.addEventListener('keydown', event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        workspaceSearch.focus();
+        workspaceSearch.select();
+      }
+    });
+    function renderOverviewFollowbacks(result) {
+      const list = document.getElementById('overview-followback-list');
+      const status = document.getElementById('overview-followback-status');
+      const followers = Array.isArray(result.followbacks) ? result.followbacks : [];
+      document.getElementById('overview-followback-count').textContent = String(followers.length);
+      list.replaceChildren();
+      if (result.notification_errors && result.notification_errors.length) {
+        status.className = 'mb-3 min-h-4 text-xs text-amber-300';
+        status.textContent = result.notification_errors.map(item => `@${item.account_handle || item.account_id}: ${item.error}`).join(' ');
+      } else if (followers.length) {
+        status.className = 'mb-3 min-h-4 text-xs muted';
+        status.textContent = `${followers.length} recent follower(s) across your connected accounts.`;
+      } else if (result.syncing_notification_account_ids && result.syncing_notification_account_ids.length) {
+        status.className = 'mb-3 min-h-4 text-xs muted';
+        status.textContent = 'Checking recent followers...';
+      } else {
+        status.className = 'mb-3 min-h-4 text-xs muted';
+        status.textContent = 'No recent followers from connected accounts yet.';
+      }
+      if (!followers.length) {
+        const empty = document.createElement('p');
+        empty.className = 'text-sm muted';
+        empty.textContent = 'New followers will appear here when they follow one of your connected accounts.';
+        list.appendChild(empty);
+        return;
+      }
+      for (const follower of followers) {
+        const card = document.createElement('article');
+        card.className = 'flex min-w-0 items-center gap-3 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3';
+        if (typeof follower.avatar === 'string' && follower.avatar.startsWith('https://')) {
+          const avatar = document.createElement('img');
+          avatar.src = follower.avatar;
+          avatar.alt = '';
+          avatar.className = 'h-10 w-10 shrink-0 rounded-full object-cover';
+          avatar.onerror = () => avatar.remove();
+          card.appendChild(avatar);
+        }
+        const details = document.createElement('div');
+        details.className = 'min-w-0 flex-1';
+        const name = document.createElement('p');
+        name.className = 'truncate text-sm font-semibold';
+        name.textContent = follower.display_name || `@${follower.handle || 'unknown'}`;
+        const metadata = document.createElement('p');
+        metadata.className = 'mt-1 truncate text-xs muted';
+        metadata.textContent = `@${follower.handle || 'unknown'} · via @${follower.account_handle || 'account'} · ${formatInboxTime(follower.created_at)}`;
+        details.append(name, metadata);
+        card.appendChild(details);
+        const actions = document.createElement('div');
+        actions.className = 'flex shrink-0 flex-wrap gap-2';
+        const followButton = document.createElement('button');
+        followButton.type = 'button';
+        followButton.className = 'control rounded-lg px-3 py-2 text-xs font-bold';
+        followButton.textContent = follower.followed_back ? 'Following' : 'Follow back';
+        followButton.disabled = Boolean(follower.followed_back) || !canEdit;
+        followButton.dataset.editorOnly = 'true';
+        followButton.onclick = () => followBackFollower(follower, followButton);
+        const chatButton = document.createElement('button');
+        chatButton.type = 'button';
+        chatButton.className = 'control rounded-lg px-3 py-2 text-xs font-bold';
+        chatButton.textContent = 'Start chat';
+        chatButton.dataset.accountId = String(follower.account_id);
+        chatButton.dataset.memberDid = follower.did;
+        chatButton.disabled = !canEdit;
+        chatButton.dataset.editorOnly = 'true';
+        chatButton.onclick = () => startChatFromFollowback(chatButton.dataset.accountId, chatButton.dataset.memberDid, chatButton);
+        actions.append(followButton, chatButton);
+        card.appendChild(actions);
+        list.appendChild(card);
+      }
+    }
+    async function followBackFollower(follower, button) {
+      button.disabled = true;
+      button.textContent = 'Following...';
+      let result;
+      try {
+        result = await api(`/api/accounts/${follower.account_id}/followbacks/${encodeURIComponent(follower.did)}`, { method: 'POST' });
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = 'Follow back';
+        showToast(error.message, 'error');
+        return;
+      }
+      button.textContent = 'Following';
+      showToast(result.already_following
+        ? `Already following @${follower.handle} from @${follower.account_handle}.`
+        : `Followed back @${follower.handle} from @${follower.account_handle}.`);
+      loadNotifications().catch(error => showToast(`Followed successfully, but the list could not refresh: ${error.message}`, 'error'));
+    }
     async function loadNotifications() {
       const status = document.getElementById('notification-page-status');
       try {
         const result = await api('/api/notifications');
+        renderOverviewFollowbacks(result);
+        renderOverviewNotifications(result.notifications);
         const navCount = document.getElementById('notifications-nav-count');
-        navCount.textContent = result.unread_count || '';
-        navCount.classList.toggle('hidden', !result.unread_count);
+        const unreadCount = Number(result.unread_count) || 0;
+        navCount.textContent = unreadCount ? String(unreadCount) : '';
+        navCount.classList.toggle('hidden', !unreadCount);
+        const topCount = document.getElementById('notifications-top-count');
+        topCount.textContent = unreadCount ? String(unreadCount) : '';
+        topCount.classList.toggle('hidden', !unreadCount);
+        document.getElementById('notification-control').setAttribute(
+          'aria-label',
+          unreadCount ? `Open notifications, ${unreadCount} unread` : 'Open notifications'
+        );
+        const unreadInboxCount = result.notifications
+          .filter(item => item.type === 'message' && !item.read)
+          .reduce((sum, item) => sum + (Number(item.unread_count) || 1), 0);
+        const inboxCount = document.getElementById('inbox-nav-count');
+        inboxCount.textContent = unreadInboxCount ? String(unreadInboxCount) : '';
+        inboxCount.classList.toggle('hidden', !unreadInboxCount);
         const notificationMarkup = result.notifications.map(item => `<div class="flex gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-2 ${item.read ? '' : 'ring-1 ring-cyan-400/30'}">${item.avatar ? `<img src="${item.avatar}" alt="" class="h-8 w-8 rounded-full object-cover">` : `<span class="grid h-8 w-8 place-items-center rounded-full bg-blue-900/60 text-cyan-300">${item.type === 'message' ? '✉' : '↗'}</span>`}<div class="min-w-0 flex-1"><p class="text-[10px] uppercase tracking-wide text-cyan-300">${item.type === 'message' ? 'Message' : item.type === 'followback' ? 'Follow-back' : item.type}</p><p class="text-xs text-cyan-100">${item.message}</p><p class="mt-1 truncate text-[10px] muted">via @${item.account_handle} · ${formatInboxTime(item.created_at)}</p>${item.type === 'followback' ? `<button type="button" class="control mt-2 rounded-md px-2 py-1 text-[10px] font-semibold" data-followback-chat data-account-id="${item.account_id}" data-member-did="${item.did}">Open chat</button>` : ''}</div></div>`).join('');
         document.getElementById('notification-page-list').innerHTML = notificationMarkup || '<p class="text-sm muted">No notifications from connected accounts yet.</p>';
         document.querySelectorAll('[data-followback-chat]').forEach(button => {
+          button.disabled = !canEdit;
+          button.dataset.editorOnly = 'true';
           button.onclick = () => startChatFromFollowback(button.dataset.accountId, button.dataset.memberDid, button);
         });
         if (result.notification_errors.length) {
@@ -253,14 +754,24 @@
       } catch (error) {
         status.className = 'mb-3 min-h-4 text-xs text-rose-300';
         status.textContent = `Could not load notifications: ${error.message}`;
+        const overviewStatus = document.getElementById('overview-followback-status');
+        overviewStatus.className = 'mb-3 min-h-4 text-xs text-rose-300';
+        overviewStatus.textContent = `Could not load recent followers: ${error.message}`;
         throw error;
       }
     }
     async function markNotificationsRead() {
       await api('/api/notifications/read', { method: 'POST' });
       document.getElementById('notifications-nav-count').classList.add('hidden');
+      document.getElementById('notifications-top-count').classList.add('hidden');
+      document.getElementById('inbox-nav-count').classList.add('hidden');
+      await loadNotifications();
     }
     document.getElementById('notifications-nav').onclick = async () => {
+      try { await markNotificationsRead(); } catch (error) { showToast(error.message, 'error'); }
+    };
+    document.getElementById('notification-control').onclick = async () => {
+      setActivePage('notifications');
       try { await markNotificationsRead(); } catch (error) { showToast(error.message, 'error'); }
     };
     document.getElementById('notifications-refresh').onclick = () => loadNotifications().catch(error => showToast(error.message, 'error'));
@@ -269,10 +780,12 @@
       button.textContent = 'Opening chat...';
       try {
         const result = await api(`/api/inbox/${accountId}/start/${encodeURIComponent(memberDid)}`, { method: 'POST' });
+        setActivePage('inbox');
         document.getElementById('inbox-account').value = String(result.account_id);
         await loadInbox(true);
         await openInboxConversation(result.account_id, result.conversation_id);
         document.getElementById('inbox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        button.textContent = 'Chat opened';
       } catch (error) {
         showToast(error.message, 'error');
         button.disabled = false;
@@ -285,9 +798,26 @@
     function setControlState(status) {
       document.querySelectorAll('[data-control]').forEach(button => {
         const action = button.dataset.control;
-        button.disabled = !selected || (globalEmergencyActive && action !== 'stop') || (action === 'start' && ['running', 'suspended'].includes(status)) || (action === 'pause' && status !== 'running') || (action === 'stop' && status === 'stopped');
+        button.disabled = !canEdit || !selected || (globalEmergencyActive && action !== 'stop') || (action === 'start' && ['running', 'suspended'].includes(status)) || (action === 'pause' && status !== 'running') || (action === 'stop' && status === 'stopped');
       });
     }
+    function renderSelectedAccountSummary(account) {
+      document.getElementById('account-handle').textContent = `@${account.handle}`;
+      document.getElementById('account-status').textContent = account.status;
+      document.getElementById('account-status').className = `${statusClass(account.status)} inline-flex rounded-full px-3 py-1`;
+      setControlState(account.status);
+    }
+    function applyRolePermissions() {
+      document.querySelectorAll(
+        '#add-account input, #add-account button, #import-accounts input, #import-accounts button, #settings-form input, #settings-form button, #post-import-form input, #post-import-form button, #inbox-composer input, #inbox-composer button, [data-editor-only]'
+      ).forEach(control => {
+        control.disabled = !canEdit;
+      });
+      if (!globalEmergencyActive) document.getElementById('emergency-control').disabled = !canEdit;
+      if (selected) setControlState(document.getElementById('account-status').textContent);
+    }
+    setControlState('stopped');
+    applyRolePermissions();
     function renderFollowedAccounts(emptyMessage) {
       const list = document.getElementById('followed-account-list');
       const totalPages = Math.max(1, Math.ceil(followedAccounts.length / FOLLOWED_ACCOUNTS_PER_PAGE));
@@ -330,38 +860,456 @@
       followedAccountsPage = Math.min(Math.max(followedAccountsPage + direction, 1), totalPages);
       renderFollowedAccounts();
     }
+    function renderSystemSummary(accounts = accountSnapshot) {
+      const runningCount = accounts.filter(item => item.status === 'running').length;
+      const attentionCount = accounts.filter(item =>
+        ['error', 'suspended', 'restricted', 'rate_limited'].includes(item.status)
+        || ['review', 'critical'].includes(item.health_state)
+      ).length;
+      const state = document.getElementById('engine-state');
+      const count = document.getElementById('engine-count');
+      const dot = document.getElementById('engine-dot');
+      let label;
+      let detail;
+      let signalClass = 'stopped';
+      if (globalEmergencyActive) {
+        label = 'Emergency stop active';
+        detail = 'Workers cannot be started until cleared.';
+        signalClass = 'attention';
+      } else if (!accounts.length) {
+        label = 'No connected accounts';
+        detail = 'Connect an account to begin.';
+      } else if (runningCount && attentionCount) {
+        label = 'Running · review required';
+        detail = `${runningCount} running · ${attentionCount} account(s) need attention`;
+        signalClass = 'attention';
+      } else if (runningCount) {
+        label = runningCount === accounts.length ? 'All workers running' : 'Workers active';
+        detail = `${runningCount} of ${accounts.length} connected accounts running`;
+        signalClass = 'running';
+      } else if (attentionCount) {
+        label = 'Review required';
+        detail = `${attentionCount} account(s) report an error or restriction`;
+        signalClass = 'attention';
+      } else if (accounts.some(item => item.status === 'paused')) {
+        label = 'Workers paused';
+        detail = `${accounts.filter(item => item.status === 'paused').length} account(s) paused`;
+      } else {
+        label = 'Workers stopped';
+        detail = `${accounts.length} connected account(s) · none running`;
+      }
+      state.textContent = label;
+      count.textContent = detail;
+      dot.className = `signal-dot ${signalClass}`;
+    }
+    function renderOverviewMetrics(accounts = accountSnapshot) {
+      const total = accounts.length;
+      const running = accounts.filter(item => item.status === 'running').length;
+      const targets = accounts.reduce((sum, item) => sum + (Number(item.target_counts?.total) || 0), 0);
+      const follows = accounts.reduce((sum, item) => sum + (Number(item.follows_today) || 0), 0);
+      const dryRun = accounts.filter(item => item.dry_run === true).length;
+      const status = document.getElementById('status');
+      status.textContent = total ? `${running} / ${total}` : '—';
+      status.className = `metric-value status-pill ${running ? 'status-running' : 'status-stopped'}`;
+      status.title = `${running} of ${total} connected workers running`;
+      document.getElementById('targets-count').textContent = total ? targets.toLocaleString() : '—';
+      document.getElementById('follows').textContent = total ? follows.toLocaleString() : '—';
+      const mode = document.getElementById('mode');
+      mode.textContent = total ? `${dryRun} / ${total}` : '—';
+      mode.className = `mode-pill ${dryRun ? 'dry-run' : 'pending'}`;
+      mode.title = `${dryRun} of ${total} connected accounts configured for dry run`;
+    }
+    function renderOverviewAccounts(accounts) {
+      const grid = document.getElementById('overview-account-grid');
+      const count = document.getElementById('overview-accounts-count');
+      grid.replaceChildren();
+      count.textContent = `${accounts.length} connected`;
+      if (!accounts.length) {
+        const empty = document.createElement('p');
+        empty.className = 'text-sm muted';
+        empty.textContent = 'No accounts connected yet. Connect a Bluesky account from the Accounts page.';
+        grid.appendChild(empty);
+        return;
+      }
+      const healthLabels = { healthy: 'No alerts', watch: 'Near cap', review: 'Review', critical: 'Critical' };
+      for (const item of accounts) {
+        const card = document.createElement('article');
+        card.className = 'overview-account-card';
+        card.classList.toggle('selected', Number(selected) === Number(item.id));
+
+        const header = document.createElement('div');
+        header.className = 'mb-2 flex min-w-0 items-center justify-between gap-2';
+        const identity = document.createElement('div');
+        identity.className = 'flex min-w-0 items-center gap-2';
+        const avatarBox = document.createElement('span');
+        avatarBox.className = 'account-card-avatar';
+        avatarBox.dataset.accountId = String(item.id);
+        const avatarFallback = document.createElement('span');
+        avatarFallback.className = 'account-card-avatar-fallback';
+        avatarFallback.dataset.avatarFallback = 'true';
+        avatarFallback.textContent = '@';
+        const avatar = document.createElement('img');
+        avatar.className = 'hidden';
+        avatar.alt = '';
+        avatar.loading = 'lazy';
+        avatarBox.append(avatarFallback, avatar);
+        const accountDetails = document.createElement('div');
+        accountDetails.className = 'min-w-0';
+        const handle = document.createElement('button');
+        handle.type = 'button';
+        handle.className = 'block max-w-full truncate text-left text-sm font-bold text-cyan-100 hover:text-white';
+        handle.textContent = `@${item.handle}`;
+        handle.title = `Select @${item.handle}`;
+        handle.onclick = () => selectAccount(item.id, 'overview');
+        const sublabel = document.createElement('span');
+        sublabel.className = 'mt-1 block text-[10px] uppercase tracking-wider muted';
+        sublabel.textContent = item.dry_run === true ? 'Dry run' : item.dry_run === false ? 'Live mode' : 'Mode unavailable';
+        accountDetails.append(handle, sublabel);
+        identity.append(avatarBox, accountDetails);
+
+        const statusActions = document.createElement('div');
+        statusActions.className = 'flex shrink-0 flex-col items-end gap-1';
+        const status = document.createElement('span');
+        status.className = `${statusClass(item.status)} shrink-0 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wide`;
+        status.textContent = item.status;
+        const manage = document.createElement('button');
+        manage.type = 'button';
+        manage.className = 'text-[9px] font-semibold text-cyan-300 hover:text-white';
+        manage.textContent = 'Manage ↗';
+        manage.setAttribute('aria-label', `Manage @${item.handle}`);
+        manage.onclick = () => selectAccount(item.id, 'discovery');
+        statusActions.append(status, manage);
+        header.append(identity, statusActions);
+
+        const usage = document.createElement('div');
+        usage.className = 'mt-1 flex items-center justify-between gap-2 text-[10px] muted';
+        const usageLabel = document.createElement('span');
+        const targetCount = Number(item.target_counts?.total) || 0;
+        usageLabel.textContent = `${targetCount.toLocaleString()} matched targets`;
+        const followsToday = Number(item.follows_today) || 0;
+        const cap = item.daily_follow_cap;
+        const usageCount = document.createElement('span');
+        usageCount.textContent = cap === null || cap === undefined ? `${followsToday} · cap unavailable` : `${followsToday} / ${cap}`;
+        usage.append(usageLabel, usageCount);
+
+        const track = document.createElement('div');
+        track.className = 'health-track mt-2';
+        track.setAttribute('role', 'progressbar');
+        track.setAttribute('aria-label', `Configured daily follow usage for @${item.handle}`);
+        const max = Math.max(1, Number(cap) || 0);
+        track.setAttribute('aria-valuemin', '0');
+        track.setAttribute('aria-valuemax', String(max));
+        track.setAttribute('aria-valuenow', String(Math.min(followsToday, max)));
+        const fill = document.createElement('div');
+        const healthState = ['healthy', 'watch', 'review', 'critical'].includes(item.health_state) ? item.health_state : 'review';
+        fill.className = `health-fill ${healthState}`;
+        fill.style.width = `${Number.isFinite(item.daily_follow_percent) ? Math.min(100, Math.max(0, item.daily_follow_percent)) : 0}%`;
+        track.appendChild(fill);
+
+        const health = document.createElement('div');
+        health.className = 'mt-2 flex items-center justify-between gap-2';
+        const healthLabel = document.createElement('span');
+        healthLabel.className = 'text-[10px] muted';
+        healthLabel.textContent = 'Observed signals';
+        const healthBadge = document.createElement('span');
+        healthBadge.className = `health-badge ${healthState}`;
+        healthBadge.textContent = healthLabels[healthState];
+        health.append(healthLabel, healthBadge);
+
+        const message = document.createElement('p');
+        message.className = 'health-copy mt-1 truncate';
+        message.textContent = healthState === 'healthy' ? '' : item.health_message || '';
+        message.title = message.textContent;
+        card.append(header, usage, track, health);
+        if (message.textContent) card.appendChild(message);
+        grid.appendChild(card);
+        observeOverviewAvatar(avatarBox);
+      }
+    }
+    function renderOverviewActivity(logs, handle) {
+      if (Array.isArray(logs)) overviewWorkerLogs = logs;
+      if (typeof handle === 'string') overviewWorkerHandle = handle;
+      const list = document.getElementById('overview-activity-list');
+      const context = document.getElementById('overview-activity-account');
+      list.replaceChildren();
+      context.textContent = selected && overviewWorkerHandle
+        ? `Account notifications · worker logs for @${overviewWorkerHandle}`
+        : 'Account notifications and selected worker logs.';
+      const events = [
+        ...overviewNotifications.map(item => ({
+          message: item.message || item.type || 'Account notification',
+          timestamp: item.created_at,
+          account_handle: item.account_handle,
+          source: item.type === 'message' ? 'Message' : item.type === 'followback' ? 'Follow-back' : item.type,
+        })),
+        ...(selected ? overviewWorkerLogs.map(item => ({
+          message: item.message || 'Worker event',
+          timestamp: item.timestamp,
+          account_handle: overviewWorkerHandle,
+          source: 'Worker log',
+        })) : []),
+      ].sort((a, b) => {
+        const aTime = Date.parse(a.timestamp || '');
+        const bTime = Date.parse(b.timestamp || '');
+        return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+      }).slice(0, 8);
+      if (!events.length) {
+        const empty = document.createElement('p');
+        empty.className = 'text-sm muted';
+        empty.textContent = 'No recent notifications or worker logs were returned.';
+        list.appendChild(empty);
+        return;
+      }
+      for (const event of events) {
+        const row = document.createElement('div');
+        row.className = 'activity-item';
+        const marker = document.createElement('span');
+        marker.className = 'activity-marker';
+        const details = document.createElement('div');
+        details.className = 'min-w-0';
+        const message = document.createElement('p');
+        message.className = 'break-words text-xs text-cyan-100';
+        message.textContent = String(event.message || 'Account event');
+        const time = document.createElement('time');
+        time.className = 'mt-1 block text-[10px] muted';
+        time.textContent = [event.source, event.account_handle ? `via @${event.account_handle}` : '', event.timestamp ? formatInboxTime(event.timestamp) : ''].filter(Boolean).join(' · ');
+        details.append(message, time);
+        row.append(marker, details);
+        list.appendChild(row);
+      }
+    }
+    function renderOverviewNotifications(notifications) {
+      overviewNotifications = Array.isArray(notifications) ? notifications : [];
+      renderOverviewActivity();
+    }
     async function loadEmergencyControl() {
       const state = await api('/api/system/control');
       globalEmergencyActive = state.active;
+      renderSystemSummary();
       const button = document.getElementById('emergency-control');
       const banner = document.getElementById('emergency-banner');
       button.textContent = state.active ? (state.can_clear ? 'Clear emergency stop' : 'Emergency stop active') : 'Emergency stop';
-      button.disabled = state.active && !state.can_clear;
+      button.disabled = state.active ? !state.can_clear : !canEdit;
       button.className = `control ${state.active ? (state.can_clear ? 'start' : 'stop') : 'stop'} rounded-lg px-3 py-2 text-xs font-bold`;
       banner.classList.toggle('hidden', !state.active);
       document.getElementById('emergency-reason').textContent = state.reason || '';
-      if (selected) setControlState(document.getElementById('status').textContent);
+      if (selected) setControlState(document.getElementById('account-status').textContent);
+    }
+    function resetAccountAvatar() {
+      const image = document.getElementById('account-avatar');
+      image.onload = null;
+      image.onerror = null;
+      image.removeAttribute('src');
+      image.classList.add('hidden');
+      document.getElementById('account-avatar-fallback').classList.remove('hidden');
+    }
+    function getAccountProfile(id) {
+      let request = accountAvatarRequests.get(id);
+      if (!request) {
+        request = api(`/api/accounts/${id}/profile`).then(data => ({
+          handle: String(data.handle || ''),
+          avatar: String(data.avatar || ''),
+        }));
+        accountAvatarRequests.set(id, request);
+      }
+      return request;
+    }
+    async function loadOverviewAccountAvatar(id, avatar, fallback) {
+      try {
+        const profile = await getAccountProfile(id);
+        if (!avatar.isConnected || !profile.avatar) return;
+        const avatarUrl = new URL(profile.avatar);
+        if (avatarUrl.protocol !== 'https:') throw new Error('Bluesky returned an insecure profile photo URL');
+        avatar.onload = () => {
+          if (!avatar.isConnected) return;
+          avatar.classList.remove('hidden');
+          fallback.classList.add('hidden');
+        };
+        avatar.onerror = () => {
+          accountAvatarRequests.delete(id);
+          fallback.title = 'Bluesky profile photo could not be displayed.';
+          console.warn(`Could not display the profile photo for account ${id}.`);
+        };
+        avatar.src = avatarUrl.href;
+      } catch (error) {
+        accountAvatarRequests.delete(id);
+        fallback.title = 'Bluesky profile photo is unavailable.';
+        console.warn(`Could not load the profile photo for account ${id}: ${error.message}`);
+      }
+    }
+    const overviewAvatarObserver = typeof IntersectionObserver === 'undefined'
+      ? null
+      : new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          overviewAvatarObserver.unobserve(entry.target);
+          void loadOverviewAccountAvatar(
+            Number(entry.target.dataset.accountId),
+            entry.target.querySelector('img'),
+            entry.target.querySelector('[data-avatar-fallback]')
+          );
+        }
+      }, { rootMargin: '100px 0px' });
+    function observeOverviewAvatar(avatarBox) {
+      if (overviewAvatarObserver) overviewAvatarObserver.observe(avatarBox);
+      else void loadOverviewAccountAvatar(
+        Number(avatarBox.dataset.accountId),
+        avatarBox.querySelector('img'),
+        avatarBox.querySelector('[data-avatar-fallback]')
+      );
+    }
+    async function loadAccountAvatar(id) {
+      try {
+        const profile = await getAccountProfile(id);
+        const avatar = profile.avatar;
+        if (selected !== id || !avatar) return;
+        const image = document.getElementById('account-avatar');
+        const fallback = document.getElementById('account-avatar-fallback');
+        const avatarUrl = new URL(avatar);
+        if (avatarUrl.protocol !== 'https:') throw new Error('Bluesky returned an insecure profile photo URL');
+        image.alt = profile.handle ? `@${profile.handle} profile photo` : 'Connected account profile photo';
+        image.onload = () => {
+          if (selected !== id) return;
+          image.classList.remove('hidden');
+          fallback.classList.add('hidden');
+        };
+        image.onerror = () => {
+          if (selected !== id) return;
+          image.classList.add('hidden');
+          fallback.classList.remove('hidden');
+          showToast('Could not display the connected account profile photo.', 'error');
+        };
+        image.src = avatarUrl.href;
+      } catch (error) {
+        accountAvatarRequests.delete(id);
+        if (selected === id) showToast(`Could not load the connected account profile photo: ${error.message}`, 'error');
+      }
     }
     async function loadAccounts() {
       const data = await api('/api/accounts');
-      document.getElementById('account-list').innerHTML = data.map(item => `<div class="account-row flex items-center gap-2 rounded-lg p-2"><button onclick="selectAccount(${item.id})" class="min-w-0 flex-1 p-1 text-left"><span class="block truncate font-semibold text-cyan-100">@${item.handle}</span><span class="${statusClass(item.status)} mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider">${item.status}</span>${item.last_error ? `<span class="mt-1 block truncate text-[10px] text-rose-300" title="${item.last_error}">${item.last_error}</span>` : ''}</button><button onclick="removeAccount(${item.id}, '${item.handle.replace(/'/g, "\\'")}')" class="rounded-md px-2 py-1 text-xs text-rose-300 hover:bg-rose-400/15" title="Remove account">✕</button></div>`).join('') || '<p class="text-sm muted">No accounts connected.</p>';
-      document.querySelectorAll('.account-row').forEach(row => row.classList.toggle('selected', row.textContent.includes(document.getElementById('account-handle').textContent.replace('@', ''))));
+      accountSnapshot = data;
+      renderSystemSummary(data);
+      renderOverviewMetrics(data);
+      renderOverviewAccounts(data);
+      if (selected) {
+        const selectedAccount = data.find(item => Number(item.id) === Number(selected));
+        if (selectedAccount) renderSelectedAccountSummary(selectedAccount);
+      }
+      const list = document.getElementById('account-list');
+      list.replaceChildren();
+      if (!data.length) {
+        const empty = document.createElement('p');
+        empty.className = 'text-sm muted';
+        empty.textContent = 'No accounts connected.';
+        list.appendChild(empty);
+      }
+      const healthLabels = { healthy: 'No alerts', watch: 'Near cap', review: 'Review', critical: 'Critical' };
+      data.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'account-row min-w-0 rounded-lg border border-transparent p-2';
+        row.dataset.accountId = String(item.id);
+        row.classList.toggle('selected', Number(selected) === Number(item.id));
+
+        const selectButton = document.createElement('button');
+        selectButton.type = 'button';
+        selectButton.className = 'min-w-0 flex-1 p-1 text-left';
+        selectButton.onclick = () => selectAccount(item.id);
+        const handle = document.createElement('span');
+        handle.className = 'block truncate font-semibold text-cyan-100';
+        handle.textContent = `@${item.handle}`;
+        const status = document.createElement('span');
+        status.className = `${statusClass(item.status)} mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider`;
+        status.textContent = item.status;
+        selectButton.append(handle, status);
+        if (item.last_error) {
+          const error = document.createElement('span');
+          error.className = 'mt-1 block truncate text-[10px] text-rose-300';
+          error.title = item.last_error;
+          error.textContent = item.last_error;
+          selectButton.appendChild(error);
+        }
+        const accountHeader = document.createElement('div');
+        accountHeader.className = 'flex min-w-0 items-start gap-2';
+        accountHeader.appendChild(selectButton);
+
+        const healthState = Object.prototype.hasOwnProperty.call(healthLabels, item.health_state) ? item.health_state : 'review';
+        const health = document.createElement('div');
+        health.className = 'account-health mt-2 px-1 pt-2';
+        const healthHeader = document.createElement('div');
+        healthHeader.className = 'mb-1 flex items-center justify-between gap-2';
+        const healthTitle = document.createElement('span');
+        healthTitle.className = 'text-[10px] font-semibold uppercase tracking-wide muted';
+        healthTitle.textContent = 'Observed signals';
+        const healthBadge = document.createElement('span');
+        healthBadge.className = `health-badge ${healthState}`;
+        healthBadge.textContent = healthLabels[healthState];
+        healthHeader.append(healthTitle, healthBadge);
+
+        const followsToday = Number(item.follows_today) || 0;
+        const dailyCap = item.daily_follow_cap;
+        const followUsage = Number.isFinite(item.daily_follow_percent) ? Math.min(100, Math.max(0, item.daily_follow_percent)) : 0;
+        const usageLabel = document.createElement('div');
+        usageLabel.className = 'mb-1 flex items-center justify-between gap-2 text-[10px] muted';
+        const usageText = document.createElement('span');
+        usageText.textContent = 'Configured daily follows';
+        const usageCount = document.createElement('span');
+        usageCount.textContent = dailyCap === null || dailyCap === undefined ? `${followsToday} · cap unavailable` : `${followsToday} / ${dailyCap}`;
+        usageLabel.append(usageText, usageCount);
+
+        const meter = document.createElement('div');
+        meter.className = 'health-track';
+        meter.setAttribute('role', 'progressbar');
+        meter.setAttribute('aria-label', `Configured daily follows for @${item.handle}`);
+        meter.setAttribute('aria-valuemin', '0');
+        meter.setAttribute('aria-valuemax', String(Math.max(1, Number(dailyCap) || 0)));
+        meter.setAttribute('aria-valuenow', String(Math.min(followsToday, Math.max(1, Number(dailyCap) || 0))));
+        const fill = document.createElement('div');
+        fill.className = `health-fill ${healthState}`;
+        fill.style.width = `${followUsage}%`;
+        meter.appendChild(fill);
+
+        const healthMessage = document.createElement('p');
+        healthMessage.className = 'health-copy mt-1 truncate';
+        healthMessage.textContent = item.health_message;
+        healthMessage.title = item.health_message;
+        health.append(healthHeader, usageLabel, meter, healthMessage);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'mt-1 rounded-md px-2 py-1 text-xs text-rose-300 hover:bg-rose-400/15';
+        removeButton.title = 'Remove account';
+        removeButton.setAttribute('aria-label', `Remove @${item.handle}`);
+        removeButton.textContent = '✕';
+        removeButton.dataset.editorOnly = 'true';
+        removeButton.disabled = !canEdit;
+        removeButton.onclick = () => removeAccount(item.id, item.handle);
+        accountHeader.appendChild(removeButton);
+        row.append(accountHeader, health);
+        list.appendChild(row);
+      });
       const selector = document.getElementById('inbox-account');
       const current = selector.value;
-      selector.innerHTML = '<option value="">All accounts</option>' + data.map(item => `<option value="${item.id}">@${item.handle}</option>`).join('');
+      selector.replaceChildren(new Option('All accounts', ''), ...data.map(item => new Option(`@${item.handle}`, String(item.id))));
       selector.value = current;
     }
-    async function selectAccount(id) {
+    async function selectAccount(id, page = 'discovery') {
       selected = id;
+      resetAccountAvatar();
+      void loadAccountAvatar(id);
+      const account = accountSnapshot.find(item => Number(item.id) === Number(id));
+      if (account) renderSelectedAccountSummary(account);
       followedAccounts = [];
       followedAccountsPage = 1;
       renderFollowedAccounts('Loading followed accounts...');
-      document.getElementById('empty').classList.add('hidden');
-      document.getElementById('account-view').classList.remove('hidden');
+      renderOverviewAccounts(accountSnapshot);
+      document.querySelectorAll('.account-row').forEach(row => {
+        row.classList.toggle('selected', Number(row.dataset.accountId) === Number(id));
+      });
+      setActivePage(page, true, false);
       document.getElementById('export').href = `/api/accounts/${id}/export.csv`;
+      if (page === 'overview') return;
       try {
         await refresh();
-        await loadAccounts();
       } catch (error) {
         if (selected !== id) return;
         renderFollowedAccounts('Could not load followed accounts.');
@@ -377,13 +1325,10 @@
       if (selected !== accountId) return;
       document.getElementById('account-handle').textContent = '@' + data.handle;
       document.getElementById('account-status').textContent = data.status;
-      document.getElementById('account-status').className = `${statusClass(data.status)} mt-1 inline-flex rounded-full px-3 py-1 text-xs`;
-      document.getElementById('status').textContent = data.status;
-      document.getElementById('targets-count').textContent = data.target_counts.total;
+      document.getElementById('account-status').className = `${statusClass(data.status)} inline-flex rounded-full px-3 py-1`;
       followedAccounts = Array.isArray(data.targets) ? data.targets.filter(item => item.status === 'followed') : [];
       renderFollowedAccounts();
-      document.getElementById('follows').textContent = `${data.follows_today}/${data.max_follows_per_day}`;
-      document.getElementById('mode').textContent = data.dry_run ? 'Dry run' : 'Live';
+      renderOverviewActivity(data.logs, data.handle);
       document.getElementById('warning').textContent = data.last_error || '';
       document.getElementById('warning').classList.toggle('hidden', !data.last_error);
       const reviewButton = document.getElementById('review-suspended');
@@ -401,7 +1346,15 @@
     }
     async function control(action) {
       if (!selected) { showToast('Select an account first.', 'error'); return; }
-      try { await api(`/api/accounts/${selected}/${action}`, { method: 'POST' }); await refresh(); await loadAccounts(); showToast(`Worker ${action === 'pause' ? 'paused' : `${action}ed`}.`); } catch (error) { showToast(error.message, 'error'); }
+      try {
+        await api(`/api/accounts/${selected}/${action}`, { method: 'POST' });
+        showToast(`Worker ${action === 'pause' ? 'paused' : `${action}ed`}.`);
+        const updates = [loadAccounts()];
+        if (activePage === 'discovery') updates.push(refresh());
+        Promise.all(updates).catch(error => showToast(`Worker action completed, but status could not be refreshed: ${error.message}`, 'error'));
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
     }
     async function removeAccount(id, handle) {
       if (!confirm(`Remove @${handle}? This deletes its encrypted credential, settings, targets, and logs.`)) return;
@@ -409,14 +1362,19 @@
         await api(`/api/accounts/${id}`, { method: 'DELETE' });
         if (selected === id) {
           selected = null;
+          resetAccountAvatar();
+          accountAvatarRequests.delete(id);
           followedAccounts = [];
           followedAccountsPage = 1;
           renderFollowedAccounts();
-          document.getElementById('account-view').classList.add('hidden');
-          document.getElementById('empty').classList.remove('hidden');
+          overviewWorkerLogs = [];
+          overviewWorkerHandle = '';
           document.getElementById('account-handle').textContent = '@Select an account';
           document.getElementById('account-status').textContent = 'No account selected';
+          document.getElementById('account-status').className = `${statusClass('stopped')} inline-flex rounded-full px-3 py-1`;
+          renderOverviewActivity([], '');
           setControlState('stopped');
+          setActivePage(activePage, false);
         }
         await loadAccounts();
         showToast(`@${handle} removed.`);
@@ -456,6 +1414,7 @@
         if (accountId) query.set('account_id', accountId);
         if (search) query.set('search', search);
         const result = await api(`/api/inbox?${query}`);
+        inboxLoaded = true;
         message.className = result.errors.length ? 'mb-3 min-h-4 text-xs text-amber-300' : 'mb-3 min-h-4 text-xs muted';
         message.textContent = result.errors.length
           ? `${result.conversations.length} conversation(s). ${result.errors.map(item => `@${item.account_handle || item.account_id}: ${item.error}`).join(' ')}`
@@ -465,10 +1424,8 @@
         document.getElementById('inbox-list').innerHTML = result.conversations.map(item => `<button class="w-full rounded-lg p-3 text-left hover:bg-blue-900/30 ${inboxConversation && inboxConversation.id === item.id && inboxConversation.account_id === item.account_id ? 'bg-blue-900/40' : ''}" onclick="openInboxConversation(${item.account_id}, '${item.id.replace(/'/g, "\\'")}')"><div class="flex items-center gap-2"><div class="h-9 w-9 overflow-hidden rounded-full bg-blue-900/60">${item.participant.avatar ? `<img src="${item.participant.avatar}" alt="" class="h-full w-full object-cover">` : '<span class="grid h-full place-items-center text-cyan-300">●</span>'}</div><div class="min-w-0 flex-1"><strong class="block truncate text-sm">${item.participant.display_name || item.participant.handle || 'Unknown user'}</strong><span class="block truncate text-[11px] muted">@${item.participant.handle} · via @${item.account_handle}</span></div>${item.unread_count ? `<span class="rounded-full bg-cyan-400 px-2 py-0.5 text-[10px] font-bold text-slate-950">${item.unread_count}</span>` : ''}</div><p class="mt-2 truncate text-xs muted">${item.latest_message || 'No messages'}</p><time class="mt-1 block text-[10px] muted">${formatInboxTime(item.last_message_at)}</time></button>`).join('') || '<p class="p-3 text-sm muted">No conversations found.</p>';
         if (inboxConversation && !silent) await openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
       } catch (error) {
-        if (!silent) {
-          message.className = 'mb-3 min-h-4 text-xs text-rose-300';
-          message.textContent = error.message;
-        }
+        message.className = 'mb-3 min-h-4 text-xs text-rose-300';
+        message.textContent = silent ? `Background inbox refresh failed: ${error.message}` : error.message;
       } finally {
         inboxLoading = false;
       }
@@ -641,8 +1598,16 @@
     };
     async function loadTeamAdmin() {
       const me = await api('/api/me');
-      if (!me.is_master_admin) return;
-      document.getElementById('team-admin').classList.remove('hidden');
+      isMasterAdmin = Boolean(me.is_master_admin);
+      canEdit = isMasterAdmin || ['admin', 'member'].includes(me.role);
+      const username = String(me.username || 'Team member');
+      document.getElementById('user-name').textContent = username;
+      document.getElementById('welcome-user-name').textContent = username;
+      document.getElementById('user-initials').textContent = username.slice(0, 2).toUpperCase();
+      document.getElementById('user-role').textContent = isMasterAdmin ? 'Master admin' : String(me.role || 'member');
+      applyRolePermissions();
+      setActivePage(activePage, false);
+      if (!isMasterAdmin) return;
       const users = await api('/api/team/users');
       document.getElementById('team-users').innerHTML = users.map(user => `<div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-900/60 bg-slate-950/30 p-3"><span>${user.username} <span class="muted text-xs">${user.is_master_admin ? '(master)' : user.is_active ? '' : '(disabled)'}</span></span><span class="flex flex-wrap items-center gap-2">${user.is_master_admin ? '' : `<select class="field rounded px-2 py-1 text-xs" onchange="changeRole(${user.id}, this.value)" ${user.is_active ? '' : 'disabled'}><option ${user.role === 'admin' ? 'selected' : ''}>admin</option><option ${user.role === 'member' ? 'selected' : ''}>member</option><option ${user.role === 'viewer' ? 'selected' : ''}>viewer</option></select><button class="text-xs text-cyan-300" onclick="resetUser(${user.id})">Reset password</button><button class="text-xs text-amber-300" onclick="disableUser(${user.id})" ${user.is_active ? '' : 'disabled'}>Disable</button><button class="text-xs text-rose-300" onclick="deleteUser(${user.id}, '${user.username.replace(/'/g, "\\'")}')">Delete</button>`}</span></div>`).join('');
     }
@@ -666,17 +1631,36 @@
         button.disabled = false;
       }
     };
-    loadAccounts().then(loadInbox).catch(error => { document.getElementById('inbox-message').textContent = error.message; });
+    const initialPage = location.hash.slice(1);
+    setActivePage(pageDetails[initialPage] ? initialPage : 'overview', false);
+    loadAccounts().catch(error => showToast(`Could not load connected accounts: ${error.message}`, 'error'));
     loadEmergencyControl().catch(error => showToast(error.message, 'error'));
     loadNotifications().catch(() => {});
-    loadTeamAdmin().catch(() => {});
-    setInterval(refresh, 20000);
-    setInterval(() => loadEmergencyControl().catch(error => showToast(error.message, 'error')), 20000);
-    setInterval(() => loadInbox(true).catch(() => {}), 30000);
-    setInterval(() => loadNotifications().catch(() => {}), 30000);
+    loadTeamAdmin().catch(error => showToast(`Could not load workspace permissions: ${error.message}`, 'error'));
     setInterval(() => {
-      if (inboxConversation) openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
-    }, 30000);
+      if (document.visibilityState === 'visible' && activePage === 'discovery' && selected) {
+        refresh().catch(error => showToast(`Could not refresh the selected account: ${error.message}`, 'error'));
+      }
+    }, 45000);
+    setInterval(() => {
+      if (document.visibilityState === 'visible') loadAccounts().catch(error => showToast(`Could not refresh account health: ${error.message}`, 'error'));
+    }, 60000);
+    setInterval(() => {
+      if (document.visibilityState === 'visible') loadEmergencyControl().catch(error => showToast(error.message, 'error'));
+    }, 60000);
+    setInterval(() => {
+      if (document.visibilityState === 'visible' && activePage === 'inbox') loadInbox(true).catch(error => showToast(`Could not refresh the inbox: ${error.message}`, 'error'));
+    }, 45000);
+    setInterval(() => {
+      if (document.visibilityState === 'visible' && ['overview', 'notifications'].includes(activePage)) loadNotifications().catch(error => {
+        if (activePage === 'notifications') showToast(`Could not refresh notifications: ${error.message}`, 'error');
+      });
+    }, 60000);
+    setInterval(() => {
+      if (document.visibilityState === 'visible' && activePage === 'inbox' && inboxConversation) {
+        openInboxConversation(inboxConversation.account_id, inboxConversation.id, false);
+      }
+    }, 45000);
   </script>
 </body>
 </html>
